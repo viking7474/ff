@@ -109,6 +109,7 @@ jobs:
           open('camoufox-149.0-beta.25/python/mach/mach/site.py', 'w').write(content)
           print('Done')
           "
+          pip3 install zstandard
           make mozbootstrap
           mkdir -p dist
 
