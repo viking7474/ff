@@ -93,6 +93,22 @@ jobs:
       - name: Setup and bootstrap
         run: |
           make setup-minimal
+          cd $GITHUB_WORKSPACE
+
+          python3 -c "
+          content = open('camoufox-149.0-beta.25/python/mach/mach/site.py').read()
+          old = '''        if self._site_packages_source != SitePackagesSource.VENV:
+                      pass
+          
+                  self._virtualenv()'''
+          new = '''        if self._site_packages_source != SitePackagesSource.VENV:
+                      return
+          
+                  self._virtualenv()'''
+          content = content.replace(old, new)
+          open('camoufox-149.0-beta.25/python/mach/mach/site.py', 'w').write(content)
+          print('Done')
+          "
           make mozbootstrap
           mkdir -p dist
 
