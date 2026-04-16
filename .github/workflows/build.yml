@@ -11,8 +11,8 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        target: [linux, windows, macos]
-        arch: [x86_64, arm64, i686]
+        target: [ windows ]
+        arch: [x86_64 ]
         exclude:
           # Fails (.mozbuild does not include clang++-cl)
           - target: windows
@@ -93,6 +93,7 @@ jobs:
       - name: Setup and bootstrap
         run: |
           make setup-minimal
+          python3 -c " content = open('/home/runner/work/ff/ff/camoufox-149.0-beta.25/python/mach/mach/site.py').read() old = ' if self._site_packages_source != SitePackagesSource.VENV:\n pass\n\n self._virtualenv()' new = ' if self._site_packages_source != SitePackagesSource.VENV:\n return\n\n self._virtualenv()' content = content.replace(old, new) open('/home/runner/work/ff/ff/camoufox-149.0-beta.25/python/mach/mach/site.py', 'w').write(content) print('Done') "
           make mozbootstrap
           mkdir -p dist
 
