@@ -103,6 +103,14 @@ jobs:
           sudo mkswap /swapfile
           sudo swapon /swapfile
           free -h
+          python3 -c "
+                content = open('camoufox-149.0-beta.25/python/mach/mach/site.py').read()
+                old = '        if self._site_packages_source != SitePackagesSource.VENV:\n            pass\n\n        self._virtualenv()'
+                new = '        if self._site_packages_source != SitePackagesSource.VENV:\n            return\n\n        self._virtualenv()'
+                content = content.replace(old, new)
+                open('camoufox-149.0-beta.25/python/mach/mach/site.py', 'w').write(content)
+                print('Done')
+                "
 
       - name: Build
         run: python3 ./multibuild.py --target ${{ matrix.target }} --arch ${{ matrix.arch }}
