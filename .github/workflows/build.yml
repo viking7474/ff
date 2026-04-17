@@ -99,7 +99,7 @@ jobs:
           import os
           
           base = os.environ["GITHUB_WORKSPACE"]
-          path = os.path.join(base, "camoufox-149.0-beta.25/python/mach/mach/site.py")
+          path = os.path.join(base, "camoufox-149.0-beta.1/python/mach/mach/site.py")
           
           with open(path, "r", encoding="utf-8") as f:
               content = f.read()
