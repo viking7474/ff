@@ -90,69 +90,63 @@ jobs:
         run: |
           make fetch
 
-      - name: Setup and bootstrap
+      - name: Setup and bootstrap FIXED
         run: |
           set -e
       
           BASE="$GITHUB_WORKSPACE"
           SRC="$GITHUB_WORKSPACE/camoufox-149.0-beta.1"
       
-          # 1️⃣ Extract source
+          # 1️⃣ extract source
           rm -rf "$SRC"
           mkdir -p "$SRC"
           tar -xJf firefox-149.0.source.tar.xz -C "$SRC" --strip-components=1
       
-          # 2️⃣ Move into source dir
+          # 2️⃣ COPY additions vào source
           cd "$SRC"
       
-          # 3️⃣ Create required folders (QUAN TRỌNG)
-          mkdir -p services/settings/dumps/main
-          mkdir -p build/vs
-          mkdir -p lw
-          mkdir -p defaults/pref
+          mkdir -p services/settings/dumps/main build/vs lw defaults/pref
       
-          # 4️⃣ Copy assets/settings (FIXED PATHS)
           cp -v "$BASE/assets/search-config.json" services/settings/dumps/main/search-config.json
           cp -v "$BASE/patches/librewolf/pack_vs.py" build/vs/
-      
           cp -v "$BASE/settings/camoufox.cfg" .
           cp -v "$BASE/settings/distribution/policies.json" .
           cp -v "$BASE/settings/defaults/pref/local-settings.js" defaults/pref/local-settings.js
           cp -v "$BASE/settings/chrome.css" .
           cp -v "$BASE/settings/properties.json" .
-      
           cp -r "$BASE/additions/"* .
           cp -v "$BASE/scripts/mozfetch.sh" lw/
-      
           touch moz.build
       
-          # 5️⃣ Setup minimal
+          # 3️⃣ QUAY LẠI ROOT REPO (QUAN TRỌNG)
+          cd "$BASE"
+      
+          # 4️⃣ setup-minimal chạy ở ROOT
           make setup-minimal
       
-          # 6️⃣ PATCH mach/site.py (SAFE VERSION)
+          # 5️⃣ patch sau setup
           python3 -c "
           import os
-          
           path = os.path.join(os.environ['GITHUB_WORKSPACE'], 'camoufox-149.0-beta.1/python/mach/mach/site.py')
           
           with open(path, 'r', encoding='utf-8') as f:
-              content = f.read()
+              c = f.read()
           
-          content = content.replace(
+          c = c.replace(
           '        if self._site_packages_source != SitePackagesSource.VENV:\n            pass\n\n        self._virtualenv()',
           '        if self._site_packages_source != SitePackagesSource.VENV:\n            return\n\n        self._virtualenv()'
           )
           
           with open(path, 'w', encoding='utf-8') as f:
-              f.write(content)
+              f.write(c)
           
           print('PATCH DONE')
           "
       
-          # 7️⃣ Bootstrap
+          # 6️⃣ bootstrap (QUAN TRỌNG: chạy ở root hoặc đúng target)
           make mozbootstrap
       
-          # 8️⃣ Output folder
+          # 7️⃣ dist
           mkdir -p dist
 
       - name: Create swap space
