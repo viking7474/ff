@@ -90,43 +90,61 @@ jobs:
         run: |
           make fetch
 
-      - name: Setup minimal
-        run: make setup-minimal
-      
-      - name: Patch mach site.py
+      - name: Setup and bootstrap
         run: |
-          python3 - << 'EOF'
+          set -e  # Dừng ngay khi có lỗi
+      
+          # 1️⃣ Xóa folder cũ và tạo folder source mới
+          SRC_DIR="$GITHUB_WORKSPACE/camoufox-149.0-beta.1"
+          rm -rf "$SRC_DIR"
+          mkdir -p "$SRC_DIR"
+      
+          # 2️⃣ Extract source
+          tar -xJf firefox-149.0.source.tar.xz -C "$SRC_DIR" --strip-components=1
+      
+          # 3️⃣ Tạo các thư mục cần thiết trước khi copy additions
+          cd "$SRC_DIR"
+          mkdir -p services/settings/dumps/main
+          mkdir -p build/vs
+          mkdir -p lw
+          mkdir -p defaults/pref
+      
+          # 4️⃣ Copy các file settings và additions
+          cp -v ../assets/search-config.json services/settings/dumps/main/search-config.json
+          cp -v ../patches/librewolf/pack_vs.py build/vs/
+          cp -v ../../settings/camoufox.cfg .
+          cp -v ../../settings/distribution/policies.json .
+          cp -v ../../settings/defaults/pref/local-settings.js defaults/pref/local-settings.js
+          cp -v ../../settings/chrome.css .
+          cp -v ../../settings/properties.json .
+          touch moz.build
+          cp -r ../additions/* .
+          cp -v ../scripts/mozfetch.sh lw/
+      
+          # 5️⃣ Chạy setup-minimal
+          make setup-minimal
+      
+          # 6️⃣ Patch site.py bằng Python -c (đơn giản, tránh EOF và indent phức tạp)
+          python3 -c "
           import os
-          
-          base = os.environ["GITHUB_WORKSPACE"]
-          path = os.path.join(base, "camoufox-149.0-beta.1/python/mach/mach/site.py")
-          
-          with open(path, "r", encoding="utf-8") as f:
+          path = os.path.join(os.environ['GITHUB_WORKSPACE'], 'camoufox-149.0-beta.1/python/mach/mach/site.py')
+          if not os.path.exists(path):
+              raise FileNotFoundError(f'{path} không tồn tại. Kiểm tra setup-minimal đã chạy đúng chưa.')
+          with open(path, 'r', encoding='utf-8') as f:
               content = f.read()
-          
-          old = """        if self._site_packages_source != SitePackagesSource.VENV:
-                      pass
-          
-                  self._virtualenv()"""
-          
-          new = """        if self._site_packages_source != SitePackagesSource.VENV:
-                      return
-          
-                  self._virtualenv()"""
-          
-          content = content.replace(old, new)
-          
-          with open(path, "w", encoding="utf-8") as f:
+          content = content.replace(
+          '        if self._site_packages_source != SitePackagesSource.VENV:\n            pass\n\n        self._virtualenv()',
+          '        if self._site_packages_source != SitePackagesSource.VENV:\n            return\n\n        self._virtualenv()'
+          )
+          with open(path, 'w', encoding='utf-8') as f:
               f.write(content)
+          print('Done patch:', path)
+          "
           
-          print("Done patch:", path)
-          EOF
+          make mozbootstrap
       
-      - name: Bootstrap
-        run: make mozbootstrap
-      
-      - name: Create dist folder
-        run: mkdir -p dist
+          # 8️⃣ Tạo folder dist
+          mkdir -p dist
 
       - name: Create swap space
         run: |
