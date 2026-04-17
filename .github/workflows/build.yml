@@ -90,27 +90,43 @@ jobs:
         run: |
           make fetch
 
-      - name: Setup and bootstrap
+      - name: Setup minimal
+        run: make setup-minimal
+      
+      - name: Patch mach site.py
         run: |
-          make setup-minimal
-
-          python3 -c "
-          content = open('/home/runner/work/ff/ff/camoufox-149.0-beta.25/python/mach/mach/site.py').read()
-          old = '''        if self._site_packages_source != SitePackagesSource.VENV:
+          python3 - << 'EOF'
+          import os
+          
+          base = os.environ["GITHUB_WORKSPACE"]
+          path = os.path.join(base, "camoufox-149.0-beta.25/python/mach/mach/site.py")
+          
+          with open(path, "r", encoding="utf-8") as f:
+              content = f.read()
+          
+          old = """        if self._site_packages_source != SitePackagesSource.VENV:
                       pass
           
-                  self._virtualenv()'''
-          new = '''        if self._site_packages_source != SitePackagesSource.VENV:
+                  self._virtualenv()"""
+          
+          new = """        if self._site_packages_source != SitePackagesSource.VENV:
                       return
           
-                  self._virtualenv()'''
+                  self._virtualenv()"""
+          
           content = content.replace(old, new)
-          open('/home/runner/work/ff/ff/camoufox-149.0-beta.25/python/mach/mach/site.py', 'w').write(content)
-          print('Done')
-          "
-          pip3 install zstandard
-          make mozbootstrap
-          mkdir -p dist
+          
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(content)
+          
+          print("Done patch:", path)
+          EOF
+      
+      - name: Bootstrap
+        run: make mozbootstrap
+      
+      - name: Create dist folder
+        run: mkdir -p dist
 
       - name: Create swap space
         run: |
