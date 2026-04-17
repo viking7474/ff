@@ -99,3 +99,14 @@ export CAMOU_CONFIG_2='"screen.height": 1080, "navigator.userAgent": "Mozilla/5.
 ```
 
 Cơ chế này cho phép các wrapper (như Python library của Camoufox) có thể thiết lập các thông số fingerprint một cách linh hoạt, tạo môi trường thực thi giả lập hoàn hảo mà website không thể nhận biết được trình duyệt đang chạy trong chế độ headless hay bị điều khiển.
+
+---
+
+## 4. Port sang JavaScript (camoufox-js)
+
+Ngoài trình điều khiển gốc viết bằng Python, cấu trúc quản lý và truyền cấu hình có thể được chuyển sang chạy native trên NodeJS/JavaScript bằng cách:
+1. Dùng thư viện `fingerprint-generator` (của Apify) để sinh vân tay ngẫu nhiên dựa trên xác suất thống kê thực tế.
+2. Dùng thư viện `geoip-lite` để tra cứu vị trí địa lý, lấy vĩ độ/kinh độ và múi giờ khớp với địa chỉ IP (Proxy).
+3. Sử dụng `playwright.firefox.launch()` và chèn chuỗi JSON được sinh ra vào biến môi trường `env.CAMOU_CONFIG` để Camoufox tự động nhận biết.
+
+Tham khảo bản nháp cài đặt Skeleton Node.js ở thư mục `jslib/` trong codebase.
