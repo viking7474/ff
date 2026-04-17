@@ -110,3 +110,33 @@ Ngoài trình điều khiển gốc viết bằng Python, cấu trúc quản lý
 3. Sử dụng `playwright.firefox.launch()` và chèn chuỗi JSON được sinh ra vào biến môi trường `env.CAMOU_CONFIG` để Camoufox tự động nhận biết.
 
 Tham khảo bản nháp cài đặt Skeleton Node.js ở thư mục `jslib/` trong codebase.
+
+### Cách chạy thử với file thực thi đã có sẵn (camoufox.exe) qua thư viện JavaScript
+
+Nếu bạn đã build hoặc tải sẵn `camoufox.exe` (hoặc `camoufox` trên Linux/macOS) và muốn test trực tiếp khả năng inject fingerprint của thư viện JavaScript, bạn có thể thực hiện theo các bước sau tại thư mục `jslib`:
+
+1. Cài đặt các thư viện cần thiết:
+   ```bash
+   cd jslib
+   npm install
+   ```
+
+2. Chạy file test `run-existing.js` và chỉ định đường dẫn tới file thực thi thông qua biến môi trường `CAMOUFOX_PATH`:
+
+   **Trên Windows (PowerShell):**
+   ```powershell
+   $env:CAMOUFOX_PATH="C:\duong\dan\toi\camoufox.exe"; node run-existing.js
+   ```
+
+   **Trên Windows (CMD):**
+   ```cmd
+   set CAMOUFOX_PATH=C:\duong\dan\toi\camoufox.exe
+   node run-existing.js
+   ```
+
+   **Trên Linux / macOS:**
+   ```bash
+   CAMOUFOX_PATH=/duong/dan/toi/camoufox node run-existing.js
+   ```
+
+Đoạn script sẽ tự động tạo một fingerprint hợp lệ dựa trên cấu hình mạng (GeoIP) mặc định và khởi chạy Playwright mở trình duyệt Camoufox của bạn, truy cập vào một trang kiểm tra để bạn xác nhận cấu hình đã hoạt động.

@@ -37,3 +37,27 @@ import { fetchCamoufox, launchCamoufox } from 'camoufox-js';
 Camoufox includes C++ patches (like `MaskConfig.hpp`) that intercept internal browser calls (e.g., `window.innerWidth`, `navigator.userAgent`). It looks for the environment variable `CAMOU_CONFIG` containing a JSON payload with spoofed values.
 
 `camoufox-js` acts as the bridge: generating real-world statistical fingerprints in NodeJS and passing them to Camoufox via this mechanism.
+
+## Testing with an existing binary
+
+If you already have a `camoufox.exe` (or `camoufox` on macOS/Linux) built and you want to test the wrapper without fetching from GitHub, you can use the `run-existing.js` script.
+
+1. Ensure you have the dependencies installed:
+   ```bash
+   npm install
+   ```
+
+2. Run the script and specify the path to your executable using the `CAMOUFOX_PATH` environment variable:
+   ```bash
+   # On Windows (Command Prompt)
+   set CAMOUFOX_PATH=C:\path\to\camoufox.exe
+   node run-existing.js
+
+   # On Windows (PowerShell)
+   $env:CAMOUFOX_PATH="C:\path\to\camoufox.exe"; node run-existing.js
+
+   # On Linux / macOS
+   CAMOUFOX_PATH=/path/to/camoufox node run-existing.js
+   ```
+
+The script will generate a realistic fingerprint, calculate the GeoIP data (defaulting to testing IP `8.8.8.8`), inject the `CAMOU_CONFIG` environment variable, and open the browser.
