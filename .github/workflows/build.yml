@@ -95,7 +95,7 @@ jobs:
           make setup-minimal
 
           python3 -c "
-          content = open('camoufox-149.0-beta.25/python/mach/mach/site.py').read()
+          content = open('/home/runner/work/ff/ff/camoufox-149.0-beta.25/python/mach/mach/site.py').read()
           old = '''        if self._site_packages_source != SitePackagesSource.VENV:
                       pass
           
@@ -105,7 +105,7 @@ jobs:
           
                   self._virtualenv()'''
           content = content.replace(old, new)
-          open('camoufox-149.0-beta.25/python/mach/mach/site.py', 'w').write(content)
+          open('/home/runner/work/ff/ff/camoufox-149.0-beta.25/python/mach/mach/site.py', 'w').write(content)
           print('Done')
           "
           pip3 install zstandard
