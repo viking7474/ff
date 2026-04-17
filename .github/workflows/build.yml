@@ -92,58 +92,67 @@ jobs:
 
       - name: Setup and bootstrap
         run: |
-          set -e  # Dừng ngay khi có lỗi
+          set -e
       
-          # 1️⃣ Xóa folder cũ và tạo folder source mới
-          SRC_DIR="$GITHUB_WORKSPACE/camoufox-149.0-beta.1"
-          rm -rf "$SRC_DIR"
-          mkdir -p "$SRC_DIR"
+          BASE="$GITHUB_WORKSPACE"
+          SRC="$GITHUB_WORKSPACE/camoufox-149.0-beta.1"
       
-          # 2️⃣ Extract source
-          tar -xJf firefox-149.0.source.tar.xz -C "$SRC_DIR" --strip-components=1
+          # 1️⃣ Extract source
+          rm -rf "$SRC"
+          mkdir -p "$SRC"
+          tar -xJf firefox-149.0.source.tar.xz -C "$SRC" --strip-components=1
       
-          # 3️⃣ Tạo các thư mục cần thiết trước khi copy additions
-          cd "$SRC_DIR"
+          # 2️⃣ Move into source dir
+          cd "$SRC"
+      
+          # 3️⃣ Create required folders (QUAN TRỌNG)
           mkdir -p services/settings/dumps/main
           mkdir -p build/vs
           mkdir -p lw
           mkdir -p defaults/pref
       
-          # 4️⃣ Copy các file settings và additions
-          cp -v ../assets/search-config.json services/settings/dumps/main/search-config.json
-          cp -v ../patches/librewolf/pack_vs.py build/vs/
-          cp -v ../../settings/camoufox.cfg .
-          cp -v ../../settings/distribution/policies.json .
-          cp -v ../../settings/defaults/pref/local-settings.js defaults/pref/local-settings.js
-          cp -v ../../settings/chrome.css .
-          cp -v ../../settings/properties.json .
-          touch moz.build
-          cp -r ../additions/* .
-          cp -v ../scripts/mozfetch.sh lw/
+          # 4️⃣ Copy assets/settings (FIXED PATHS)
+          cp -v "$BASE/assets/search-config.json" services/settings/dumps/main/search-config.json
+          cp -v "$BASE/patches/librewolf/pack_vs.py" build/vs/
       
-          # 5️⃣ Chạy setup-minimal
+          cp -v "$BASE/settings/camoufox.cfg" .
+          cp -v "$BASE/settings/distribution/policies.json" .
+          cp -v "$BASE/settings/defaults/pref/local-settings.js" defaults/pref/local-settings.js
+          cp -v "$BASE/settings/chrome.css" .
+          cp -v "$BASE/settings/properties.json" .
+      
+          cp -r "$BASE/additions/"* .
+          cp -v "$BASE/scripts/mozfetch.sh" lw/
+      
+          touch moz.build
+      
+          # 5️⃣ Setup minimal
           make setup-minimal
       
-          # 6️⃣ Patch site.py bằng Python -c (đơn giản, tránh EOF và indent phức tạp)
+          # 6️⃣ PATCH mach/site.py (SAFE VERSION)
           python3 -c "
           import os
+          
           path = os.path.join(os.environ['GITHUB_WORKSPACE'], 'camoufox-149.0-beta.1/python/mach/mach/site.py')
-          if not os.path.exists(path):
-              raise FileNotFoundError(f'{path} không tồn tại. Kiểm tra setup-minimal đã chạy đúng chưa.')
+          
           with open(path, 'r', encoding='utf-8') as f:
               content = f.read()
+          
           content = content.replace(
           '        if self._site_packages_source != SitePackagesSource.VENV:\n            pass\n\n        self._virtualenv()',
           '        if self._site_packages_source != SitePackagesSource.VENV:\n            return\n\n        self._virtualenv()'
           )
+          
           with open(path, 'w', encoding='utf-8') as f:
               f.write(content)
-          print('Done patch:', path)
-          "
           
+          print('PATCH DONE')
+          "
+      
+          # 7️⃣ Bootstrap
           make mozbootstrap
       
-          # 8️⃣ Tạo folder dist
+          # 8️⃣ Output folder
           mkdir -p dist
 
       - name: Create swap space
