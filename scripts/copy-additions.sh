@@ -49,6 +49,13 @@ fi
 # Copy ALL new files/folders from ../additions to .
 run 'cp -r ../additions/* .'
 
+# FF149 build scripts and patches still resolve browser branding via the
+# legacy camoufox source path in some places. Keep a source-tree alias so the
+# build can locate moz.build while runtime branding stays Winfox.
+if [[ -d browser/branding/winfox && ! -d browser/branding/camoufox ]]; then
+    run 'cp -r browser/branding/winfox browser/branding/camoufox'
+fi
+
 # Provide a script that fetches and bootstraps Nightly and some mozconfigs
 run 'cp -v ../scripts/mozfetch.sh lw/'
 
