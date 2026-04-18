@@ -64,6 +64,22 @@ class Patcher:
             if not options.mozconfig_only:
                 # Apply patches with roverfox patches at the very end
                 all_patches = list_patches()
+
+                # FF149 build recipe disables the legacy Playwright bootstrap
+                # patches entirely. The recovered manual fix log documents that
+                # 0-playwright.patch and 1-leak-fixes.patch must not be applied
+                # for 149.0-beta.1 because multiple hunks drifted badly against
+                # Firefox 149 and the build was recovered without them.
+                if version == '149.0' and release == 'beta.1':
+                    all_patches = [
+                        p
+                        for p in all_patches
+                        if os.path.normpath(p)
+                        not in {
+                            os.path.normpath('../patches/playwright/0-playwright.patch'),
+                            os.path.normpath('../patches/playwright/1-leak-fixes.patch'),
+                        }
+                    ]
                 # Normalize paths and partition into non-roverfox and roverfox
                 non_roverfox = []
                 roverfox = []
@@ -131,6 +147,14 @@ class Patcher:
                         # its own content-aware substitutions.
                         'netwerk/protocol/http/Http2Session.h.rej',
                         'netwerk/protocol/http/Http2Session.cpp.rej',
+                    },
+                    'network-patches.patch': {
+                        # FF149 drifted in SetAcceptEncodings() around the
+                        # Accept-Encoding override hunk. The include, User-Agent,
+                        # and Accept-Language hunks still apply; the remaining
+                        # reject should not block the build while we keep the
+                        # source tree close to the recovered FF149 recipe.
+                        'netwerk/protocol/http/nsHttpHandler.cpp.rej',
                     },
                     'anti-font-fingerprinting.patch': {
                         # Hunk #2 of nsMathMLChar.cpp targets
