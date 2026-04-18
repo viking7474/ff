@@ -7,7 +7,7 @@ index d11c35ff9d..0aa4b9058b 100644
  # Note the manifest file exists in the tree, so we use the explicit filename
  # here.
 -EXTRA_DEPS += $(srcdir)/firefox.exe.manifest
-+EXTRA_DEPS += $(srcdir)/camoufox.exe.manifest
++EXTRA_DEPS += $(srcdir)/winfox.exe.manifest
  endif
  
  PROGRAMS_DEST = $(DIST)/bin
@@ -20,23 +20,23 @@ index d11c35ff9d..0aa4b9058b 100644
  	$(MKDIR) -p '$(dist_dest)/Contents/Library/LaunchServices'
  ifdef MOZ_UPDATER
  	cp -f '$(dist_dest)/Contents/MacOS/updater.app/Contents/MacOS/org.mozilla.updater' '$(dist_dest)/Contents/Library/LaunchServices'
-diff --git a/browser/app/firefox.exe.manifest b/browser/app/camoufox.exe.manifest
+diff --git a/browser/app/firefox.exe.manifest b/browser/app/winfox.exe.manifest
 similarity index 80%
 rename from browser/app/firefox.exe.manifest
-rename to browser/app/camoufox.exe.manifest
+rename to browser/app/winfox.exe.manifest
 index 995b2fc869..4a03da3064 100644
 --- a/browser/app/firefox.exe.manifest
-+++ b/browser/app/camoufox.exe.manifest
++++ b/browser/app/winfox.exe.manifest
 @@ -3,10 +3,10 @@
  <assemblyIdentity
          version="1.0.0.0"
          processorArchitecture="*"
 -        name="Firefox"
-+        name="Camoufox"
++        name="Winfox"
          type="win32"
  />
 -<description>Firefox</description>
-+<description>Camoufox</description>
++<description>Winfox</description>
  <dependency>
          <dependentAssembly>
                  <assemblyIdentity

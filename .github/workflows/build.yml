@@ -95,7 +95,7 @@ jobs:
           set -e
       
           BASE="$GITHUB_WORKSPACE"
-          SRC="$GITHUB_WORKSPACE/camoufox-149.0-beta.1"
+          SRC="$GITHUB_WORKSPACE/winfox-149.0-beta.1"
       
           # 1️⃣ extract source
           rm -rf "$SRC"
@@ -109,7 +109,7 @@ jobs:
       
           cp -v "$BASE/assets/search-config.json" services/settings/dumps/main/search-config.json
           cp -v "$BASE/patches/librewolf/pack_vs.py" build/vs/
-          cp -v "$BASE/settings/camoufox.cfg" .
+          cp -v "$BASE/settings/winfox.cfg" .
           cp -v "$BASE/settings/distribution/policies.json" .
           cp -v "$BASE/settings/defaults/pref/local-settings.js" defaults/pref/local-settings.js
           cp -v "$BASE/settings/chrome.css" .
@@ -127,7 +127,7 @@ jobs:
           # 5️⃣ patch sau setup
           python3 -c "
           import os
-          path = os.path.join(os.environ['GITHUB_WORKSPACE'], 'camoufox-149.0-beta.1/python/mach/mach/site.py')
+          path = os.path.join(os.environ['GITHUB_WORKSPACE'], 'winfox-149.0-beta.1/python/mach/mach/site.py')
           
           with open(path, 'r', encoding='utf-8') as f:
               c = f.read()

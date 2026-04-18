@@ -2,7 +2,7 @@
 "use strict";
 
 const RECONNECT_MS = 2000;
-const PREF_KEY = "extensions.camoufox.ws_port";
+const PREF_KEY = "extensions.winfox.ws_port";
 let ws = null;
 let wsPort = 8775;
 let reconnectTimer = null;

@@ -509,7 +509,7 @@ def launch_options(
     firefox_user_prefs.setdefault("privacy.bounceTrackingProtection.mode", 0)
     # FF141+: disable CHIPS cookie partitioning (breaks cross-site auth flows)
     firefox_user_prefs.setdefault("network.cookie.CHIPS.enabled", False)
-    # Accept all cookies (camoufox.cfg sets 4=partition which breaks captcha verification)
+    # Accept all cookies (winfox.cfg sets 4=partition which breaks captcha verification)
     firefox_user_prefs.setdefault("network.cookie.cookieBehavior", 0)
     firefox_user_prefs.setdefault("network.cookie.sameSite.laxByDefault", False)
     firefox_user_prefs.setdefault("network.cookie.sameSite.noneRequiresSecure", False)

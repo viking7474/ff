@@ -227,16 +227,16 @@ workspace:
 tests:
 	cd ./tests && \
 	bash run-tests.sh \
-		--executable-path ../$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin \
+		--executable-path ../$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/winfox-bin \
 		$(if $(filter true,$(headful)),--headful,)
 
 unbusy:
-	rm -rf $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin \
-		$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox \
+	rm -rf $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/winfox-bin \
+		$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/winfox \
 		$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/launch
 
 path:
-	@realpath $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin
+	@realpath $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/winfox-bin
 
 update-ubo-assets:
 	bash ./scripts/update-ubo-assets.sh

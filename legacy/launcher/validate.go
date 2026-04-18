@@ -40,7 +40,7 @@ func loadProperties() []Property {
 	// Get the path to the properties.json file
 	var propertiesPath string
 	if normalizeOS(runtime.GOOS) == "macos" {
-		propertiesPath = getPath("Camoufox.app/Contents/Resources/properties.json")
+		propertiesPath = getPath("Winfox.app/Contents/Resources/properties.json")
 	} else {
 		propertiesPath = getPath("properties.json")
 	}

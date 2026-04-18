@@ -12,12 +12,12 @@
 ##
 ## Reference: https://www.mozilla.org/styleguide/communications/translation/
 
--brand-shorter-name = Camoufox
--brand-short-name = Camoufox
--brand-full-name = Camoufox
--brand-shortcut-name = Camoufox
+-brand-shorter-name = Winfox
+-brand-short-name = Winfox
+-brand-full-name = Winfox
+-brand-shortcut-name = Winfox
 # This brand name can be used in messages where the product name needs to
 # remain unchanged across different versions (Nightly, Beta, etc.).
--brand-product-name = Camoufox
--vendor-short-name = Camoufox
+-brand-product-name = Winfox
+-vendor-short-name = Winfox
 trademarkInfo = { " " }

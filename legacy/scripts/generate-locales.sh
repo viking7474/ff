@@ -30,10 +30,10 @@ generate_locale() {
   mv browser/locales/l10n/$1-*/ browser/locales/l10n/$1/
   rm -f browser/locales/l10n/$1.zip
   echo_status "Generating locale \"$1\""
-  mv browser/locales/l10n/$1/browser/branding/official browser/locales/l10n/$1/browser/branding/camoufox
-  find browser/locales/l10n/$1 -type f -exec sed -i -e 's/Mozilla Firefox/Camoufox/g' {} \;
-  find browser/locales/l10n/$1 -type f -exec sed -i -e 's/Mozilla/Camoufox/g' {} \;
-  find browser/locales/l10n/$1 -type f -exec sed -i -e 's/Firefox/Camoufox/g' {} \;
+  mv browser/locales/l10n/$1/browser/branding/official browser/locales/l10n/$1/browser/branding/winfox
+  find browser/locales/l10n/$1 -type f -exec sed -i -e 's/Mozilla Firefox/Winfox/g' {} \;
+  find browser/locales/l10n/$1 -type f -exec sed -i -e 's/Mozilla/Winfox/g' {} \;
+  find browser/locales/l10n/$1 -type f -exec sed -i -e 's/Firefox/Winfox/g' {} \;
   echo_status "Done"
   sleep 0.3
   echo_status

@@ -11,7 +11,7 @@ if exist "%DEST%\firefox" (
     xcopy /s /y "%DEST%\firefox\*" "%DEST%\"
     rmdir /s /q "%DEST%\firefox"
 )
-copy /y "%DEST%\firefox.exe" "%DEST%\camoufox.exe" 2>nul
+copy /y "%DEST%\firefox.exe" "%DEST%\winfox.exe" 2>nul
 
 echo {"version":"149.0","build":"beta.1","prerelease":false,"asset_id":null,"asset_size":null,"asset_updated_at":null} > "%DEST%\version.json"
 
@@ -23,5 +23,5 @@ pip install -e "%~dp0pythonlib"
 pip install geckordp websockets
 
 echo.
-echo Deploy completo. Binario en: %DEST%\camoufox.exe
+echo Deploy completo. Binario en: %DEST%\winfox.exe
 pause

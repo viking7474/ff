@@ -41,13 +41,13 @@ def run_playwright(mode, browser_name):
     virt = VirtualDisplay()
     env = {"DISPLAY": virt.get()}
 
-    if browser_name == "camoufox-ubo":
+    if browser_name == "winfox-ubo":
         camoufox = Camoufox(headless=headless, env=env)
         browser = camoufox.start()
     elif browser_name == "firefox":
         playwright = sync_playwright().start()
         browser = playwright.firefox.launch(headless=headless, env=env)
-    elif browser_name == "camoufox":
+    elif browser_name == "winfox":
         playwright = sync_playwright().start()
         browser = playwright.firefox.launch(
             headless=headless, env=env, executable_path=launch_path()
@@ -58,7 +58,7 @@ def run_playwright(mode, browser_name):
         page.goto(url)
         time.sleep(5)  # Allow the page to load
         memory = get_average_memory(
-            name="camoufox-bin" if browser_name.startswith('camoufox') else 'firefox', duration=10
+            name="winfox-bin" if browser_name.startswith('winfox') else 'firefox', duration=10
         )
         memory_usage.append((url, memory))
         page.close()
@@ -81,7 +81,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--browser",
         type=str,
-        choices=["firefox", "camoufox", "camoufox-ubo"],
+        choices=["firefox", "winfox", "winfox-ubo"],
         required=True,
         help="Browser to use for the benchmark.",
     )
