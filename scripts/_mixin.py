@@ -42,15 +42,23 @@ def get_options():
 
 def find_src_dir(root_dir='.', version=None, release=None):
     """Get the source directory"""
+    candidates = []
     if version and release:
-        name = os.path.join(root_dir, f'winfox-{version}-{release}')
-        assert os.path.exists(name), f'{name} does not exist.'
-        return name
+        candidates = [
+            os.path.join(root_dir, f'camoufox-{version}-{release}'),
+            os.path.join(root_dir, f'winfox-{version}-{release}'),
+        ]
+        for name in candidates:
+            if os.path.exists(name):
+                return name
+        raise AssertionError(f"None of these source directories exist: {', '.join(candidates)}")
+
     folders = os.listdir(root_dir)
-    for folder in folders:
-        if os.path.isdir(folder) and folder.startswith('winfox-'):
-            return os.path.join(root_dir, folder)
-    raise FileNotFoundError('No winfox-* folder found')
+    for prefix in ('camoufox-', 'winfox-'):
+        for folder in folders:
+            if os.path.isdir(folder) and folder.startswith(prefix):
+                return os.path.join(root_dir, folder)
+    raise FileNotFoundError('No camoufox-* or winfox-* folder found')
 
 
 def get_moz_target(target, arch):
