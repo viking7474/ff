@@ -1,50 +1,41 @@
-# Camoufox Build Tester
+# Winfox Build Tester
 
-Tests a raw Camoufox binary (Firefox) directly against the same antibot-detection checks used in the service tests. Use this to validate a binary before packaging/releasing — it bypasses the Python package entirely.
+Tests a raw Winfox binary directly against the browser-side anti-detect checks. This is now a Node/TypeScript entrypoint built around `packages/winfox`.
 
 ## Prerequisites
 
-- Python 3.9+
-- Node.js (for building the TypeScript checks bundle via `esbuild`, first run only)
+- Node.js 18+
 
 ## Setup
 
 ```bash
-# Install npm deps (once — needed to build the checks bundle)
+# Install workspace deps
 npm install
-
-# Install Python deps
-pip install -r requirements.txt
 ```
 
 ## Usage
 
 ```bash
-python scripts/run_tests.py <binary_path> [options]
+npm run test --workspace winfox-build-tester -- <binary_path> [options]
 ```
 
 **Example:**
 ```bash
-python scripts/run_tests.py /path/to/camoufox-bin/camoufox
+npm run test --workspace winfox-build-tester -- /path/to/winfox-bin
 ```
 
 ## Options
 
 ```
-  binary_path           Path to the Camoufox (Firefox) binary
-  --profile-count N     Number of profiles to test (1-8, default: 8)
-  --secret KEY          HMAC signing key for certificate
-  --save-cert PATH      Save certificate text to a file
-  --no-cert             Skip certificate generation
+  binary_path or --executable-path PATH  Path to the Winfox binary
+  --headful                           Run with a visible window
+  --timeout-ms N                      Wait timeout for browser checks
+  --save-json PATH                    Save raw results JSON
 ```
 
 ## What It Tests
 
-8 profiles total, run in two phases:
-
-**Per-context phase (6 profiles)** — 3 macOS + 3 Linux profiles open simultaneously in a single browser instance, each with an isolated fingerprint injected via `addInitScript`. Tests that fingerprints are unique and don't leak between contexts.
-
-**Global phase (2 profiles)** — 1 macOS + 1 Linux profile launched with fingerprint config passed via the `CAMOU_CONFIG` environment variable. Tests that browser-level fingerprint injection works correctly.
+The Node CLI launches a single Winfox instance, serves the browser checks locally, and reports a grade from the in-page results.
 
 Each profile is scored across:
 
@@ -70,20 +61,17 @@ Each profile is scored across:
 
 | | Build Tester | Service Tests |
 |---|---|---|
-| Entry point | Raw binary path | `pip install camoufox` |
-| Fingerprint injection | Manual (`generate_context_fingerprint` + init script) | Via `AsyncNewContext` API |
-| Global mode | Yes (`CAMOU_CONFIG` env var) | No |
-| Match validation | Yes (checks injected values match page) | No |
+| Entry point | `npm run test --workspace winfox-build-tester` | `npm run test --workspace winfox-service-tester` |
+| Launch API | `packages/winfox` | `packages/winfox` |
 | Proxy support | No | Yes |
-| Profile count | 8 (6 per-context + 2 global) | 6 (per-context only) |
 
 ## The Checks Bundle
 
-`scripts/checks-bundle.js` is a compiled artifact built from the TypeScript sources in `src/lib/checks/`. It is built automatically on first run. To force a rebuild, delete it:
+`scripts/checks-bundle.js` is built from the TypeScript sources in `src/lib/checks/`. It is rebuilt by the Node CLI when needed.
 
 ```bash
 rm scripts/checks-bundle.js
-python scripts/run_tests.py <binary_path>
+npm run test --workspace winfox-build-tester -- <binary_path>
 ```
 
 Source files:

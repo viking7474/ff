@@ -6,8 +6,11 @@
 
 </div>
 
+> [!WARNING]
+> This Python package is deprecated. New development has moved to the TypeScript + Playwright `winfox` package in `packages/winfox`.
+
 > [!NOTE]
-> All the the latest documentation is avaliable [here](https://camoufox.com/python).
+> The Python package is kept only as a legacy compatibility layer while the repo transitions to the Node/TypeScript workflow.
 
 ---
 

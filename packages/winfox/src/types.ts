@@ -19,3 +19,12 @@ export interface ResolveWinfoxExecutableOptions {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
 }
+
+export type {
+  CertificateData,
+  CrossProfileAnalysis,
+  FullTestResult,
+  TesterProfile,
+  TesterProfileResult,
+  TesterResults,
+} from "./reports.js";

@@ -210,7 +210,10 @@ class CamoufoxUpdate(CamoufoxFetcher):
 
 @click.group()
 def cli() -> None:
-    pass
+    rprint(
+        "Deprecated: the Python camoufox CLI is legacy-only. Use the TypeScript winfox package instead.",
+        fg="yellow",
+    )
 
 
 @cli.command(name="sync")

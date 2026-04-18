@@ -2,10 +2,14 @@
   "name": "ff-workspace",
   "private": true,
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "build-tester",
+    "service-tester"
   ],
   "scripts": {
     "build": "npm run build --workspace winfox",
-    "test": "npm run test --workspace winfox"
+    "test": "npm run test --workspace winfox",
+    "test:build-tester": "npm run test --workspace winfox-build-tester",
+    "test:service-tester": "npm run test --workspace winfox-service-tester"
   }
 }

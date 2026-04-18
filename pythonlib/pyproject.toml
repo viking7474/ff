@@ -5,7 +5,7 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry]
 name = "camoufox"
 version = "0.5.0"
-description = "Wrapper around Playwright to help launch Camoufox"
+description = "DEPRECATED: legacy Python wrapper for Winfox/Camoufox"
 authors = ["daijro <daijro.dev@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/daijro/camoufox"

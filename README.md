@@ -1,11 +1,11 @@
 <img src="https://i.imgur.com/enUBkXt.png" align="center">
 
-<h1 align="center">Camoufox</h1>
+<h1 align="center">Winfox</h1>
 
 <h4 align="center">A stealthy, minimalistic, custom build of Firefox for web scraping 🦊</h4>
 
 <p align="center">                                      
-Camoufox is an open source anti-detect browser for robust fingerprint injection & anti-bot evasion.
+Winfox is an open source anti-detect browser for robust fingerprint injection & anti-bot evasion.
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@ Camoufox is an open source anti-detect browser for robust fingerprint injection 
 ---
 
 > [!NOTE]
-> **All of the latest documentation is avaliable at [camoufox.com](https://camoufox.com).**
+> The primary SDK is now the TypeScript + Playwright `winfox` package in `packages/winfox`.
 
 > [!NOTE]
 > Browser development is active at [github.com/CloverLabsAI/camoufox](https://github.com/CloverLabsAI/camoufox). ([See activity](https://github.com/CloverLabsAI/camoufox/activity))<br>
@@ -145,7 +145,7 @@ Camoufox is a modern & effective open source solution for avoiding bot detection
   - No CSS animations 💨
 
 - Debloated & optimized for memory efficiency ⚡
-- [PyPi package](https://pypi.org/project/camoufox/) for updates & auto fingerprint injection 📦
+- TypeScript + Playwright helper package in `packages/winfox` 📦
 - Stays up to date with the latest Firefox version 🕓
 
 ---
@@ -166,31 +166,20 @@ Config data not set by the user will be automatically populated using [BrowserFo
 
 ---
 
-## Python Usage
+## TypeScript Usage
 
-Camoufox is compatible with your existing Playwright code. You only have to change your browser initialization.
+Winfox is compatible with your existing Playwright code. You only have to change your browser initialization.
 
-**Sync API**
+```ts
+import { launchWinfox } from "winfox";
 
-```python
-from camoufox.sync_api import Camoufox
-
-with Camoufox() as browser:
-    page = browser.new_page()
-    page.goto("https://example.com")
+const browser = await launchWinfox();
+const page = await browser.newPage();
+await page.goto("https://example.com");
+await browser.close();
 ```
 
-**Async API**
-
-```python
-from camoufox.async_api import AsyncCamoufox
-
-async with AsyncCamoufox() as browser:
-    page = await browser.new_page()
-    await page.goto("https://example.com")
-```
-
-[[Installation & usage](https://camoufox.com/python/)]
+The legacy Python package under `pythonlib/` is deprecated and kept only for compatibility during the transition.
 
 ### Making Full use of Hardware Spoofing
 
