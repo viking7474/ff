@@ -364,7 +364,7 @@ if __name__ == "__main__":
     _update_rustup(TARGET)
 
     # Check if the folder exists
-    if not os.path.exists(f'camoufox-{VERSION}-{RELEASE}/configure.py'):
+    if not os.path.exists(f'winfox-{VERSION}-{RELEASE}/configure.py'):
         sys.stderr.write('error: folder doesn\'t look like a Firefox folder.')
         sys.exit(1)
 

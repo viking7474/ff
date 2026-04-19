@@ -1,7 +1,7 @@
 include upstream.sh
 export
 
-cf_source_dir := camoufox-$(version)-$(release)
+cf_source_dir := winfox-$(version)-$(release)
 ff_source_tarball := firefox-$(version).source.tar.xz
 
 debs := python3 python3-dev python3-pip p7zip-full golang-go msitools wget aria2 libsqlite3-dev

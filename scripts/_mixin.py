@@ -45,8 +45,8 @@ def find_src_dir(root_dir='.', version=None, release=None):
     candidates = []
     if version and release:
         candidates = [
-            os.path.join(root_dir, f'camoufox-{version}-{release}'),
             os.path.join(root_dir, f'winfox-{version}-{release}'),
+            os.path.join(root_dir, f'camoufox-{version}-{release}'),
         ]
         for name in candidates:
             if os.path.exists(name):
@@ -54,7 +54,7 @@ def find_src_dir(root_dir='.', version=None, release=None):
         raise AssertionError(f"None of these source directories exist: {', '.join(candidates)}")
 
     folders = os.listdir(root_dir)
-    for prefix in ('camoufox-', 'winfox-'):
+    for prefix in ('winfox-', 'camoufox-'):
         for folder in folders:
             if os.path.isdir(folder) and folder.startswith(prefix):
                 return os.path.join(root_dir, folder)
