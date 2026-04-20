@@ -44,10 +44,10 @@ def launch_playwright(executable_path):
 def get_args():
     """Get CLI parameters"""
     parser = argparse.ArgumentParser(
-        description='Package Camoufox for different operating systems.'
+        description='Package Winfox for different operating systems.'
     )
-    parser.add_argument('--version', required=True, help='Camoufox version')
-    parser.add_argument('--release', required=True, help='Camoufox release number')
+    parser.add_argument('--version', required=True, help='Winfox version')
+    parser.add_argument('--release', required=True, help='Winfox release number')
     return parser.parse_args()
 
 
@@ -61,10 +61,10 @@ def main():
     launcher_path = os.path.abspath(os.path.join('.', 'legacy', 'launcher', 'dist', 'launch'))
 
     with temp_cd(src_dir):
-        print(f'Looking for file: obj-{moz_target}/dist/bin/camoufox-bin')
+        print(f'Looking for file: obj-{moz_target}/dist/bin/winfox-bin')
         with temp_cd(f'obj-{moz_target}/dist/bin'):
-            if os.path.exists('camoufox-bin'):
-                # Copy launcher_path to . if we are using camoufox-bin
+            if os.path.exists('winfox-bin'):
+                # Copy launcher_path to . if we are using winfox-bin
                 shutil.copy(launcher_path, '.')
                 file_name = 'launch'
             elif os.path.exists('firefox-bin'):

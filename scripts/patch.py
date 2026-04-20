@@ -257,7 +257,7 @@ Preparation
 def extract_args():
     """Get version and release from args"""
     if len(args) != 2:
-        sys.stderr.write('error: please specify version and release of camoufox source')
+        sys.stderr.write('error: please specify version and release of winfox source')
         sys.exit(1)
     return args[0], args[1]
 
@@ -291,7 +291,7 @@ if __name__ == "__main__":
     _update_rustup(TARGET)
 
     # Check if the folder exists
-    if not os.path.exists(f'camoufox-{VERSION}-{RELEASE}/configure.py'):
+    if not os.path.exists(f'winfox-{VERSION}-{RELEASE}/configure.py'):
         sys.stderr.write('error: folder doesn\'t look like a Firefox folder.')
         sys.exit(1)
 

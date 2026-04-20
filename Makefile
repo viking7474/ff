@@ -5,7 +5,7 @@ export TMPDIR ?= $(CURDIR)/.tmp
 export MACH_BUILD_PYTHON_NATIVE_PACKAGE_SOURCE ?= system
 $(shell mkdir -p $(TMPDIR))
 
-cf_source_dir := camoufox-$(version)-$(release)
+cf_source_dir := winfox-$(version)-$(release)
 ff_source_tarball := firefox-$(version).source.tar.xz
 
 debs := python3 python3-dev python3-pip p7zip-full golang-go msitools wget aria2 libsqlite3-dev libasound2-dev python3-zstandard python3-psutil
@@ -35,7 +35,7 @@ help:
 	@echo "  package-macos   - Package Camoufox for macOS"
 	@echo "  package-windows - Package Camoufox for Windows"
 	@echo "  run             - Run Camoufox"
-	@echo "  edit-cfg        - Edit camoufox.cfg"
+	@echo "  edit-cfg        - Edit winfox.cfg"
 	@echo "  ff-dbg          - Setup vanilla Firefox with minimal patches"
 	@echo "  patch           - Apply a patch"
 	@echo "  unpatch         - Remove a patch"
@@ -189,16 +189,16 @@ run-pw:
 
 run:
 	cd $(cf_source_dir) \
-	&& rm -rf ~/.camoufox obj-x86_64-pc-linux-gnu/tmp/profile-default \
+	&& rm -rf ~/.winfox obj-x86_64-pc-linux-gnu/tmp/profile-default \
 	&& CAMOU_CONFIG=$${CAMOU_CONFIG:-'{}'} \
 	&& CAMOU_CONFIG="$${CAMOU_CONFIG%?}, \"debug\": true}" ./mach run $(args)
 
 edit-cfg:
-	@if [ ! -f $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox.cfg ]; then \
-		echo "Error: camoufox.cfg not found. Apply config.patch first."; \
+	@if [ ! -f $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/winfox.cfg ]; then \
+		echo "Error: winfox.cfg not found. Apply config.patch first."; \
 		exit 1; \
 	fi
-	$(EDITOR) $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox.cfg
+	$(EDITOR) $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/winfox.cfg
 
 check-arg:
 	@if [ -z "$(_ARGS)" ]; then \
@@ -231,16 +231,16 @@ workspace:
 tests:
 	cd ./tests && \
 	bash run-tests.sh \
-		--executable-path ../$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin \
+		--executable-path ../$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/winfox-bin \
 		$(if $(filter true,$(headful)),--headful,)
 
 unbusy:
-	rm -rf $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin \
-		$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox \
+	rm -rf $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/winfox-bin \
+		$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/winfox \
 		$(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/launch
 
 path:
-	@realpath $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin
+	@realpath $(cf_source_dir)/obj-x86_64-pc-linux-gnu/dist/bin/winfox-bin
 
 update-ubo-assets:
 	bash ./scripts/update-ubo-assets.sh

@@ -96,7 +96,7 @@ jobs:
           cd $GITHUB_WORKSPACE
 
           python3 -c "
-          content = open('camoufox-149.0-beta.25/python/mach/mach/site.py').read()
+          content = open('winfox-149.0-beta.25/python/mach/mach/site.py').read()
           old = '''        if self._site_packages_source != SitePackagesSource.VENV:
                       pass
           
@@ -106,7 +106,7 @@ jobs:
           
                   self._virtualenv()'''
           content = content.replace(old, new)
-          open('camoufox-149.0-beta.25/python/mach/mach/site.py', 'w').write(content)
+          open('winfox-149.0-beta.25/python/mach/mach/site.py', 'w').write(content)
           print('Done')
           "
           pip3 install zstandard
@@ -121,11 +121,11 @@ jobs:
           sudo swapon /swapfile
           free -h
           python3 -c "
-                content = open('/home/runner/work/ff/ff/camoufox-149.0-beta.25/python/mach/mach/site.py').read()
+                content = open('/home/runner/work/ff/ff/winfox-149.0-beta.25/python/mach/mach/site.py').read()
                 old = '        if self._site_packages_source != SitePackagesSource.VENV:\n            pass\n\n        self._virtualenv()'
                 new = '        if self._site_packages_source != SitePackagesSource.VENV:\n            return\n\n        self._virtualenv()'
                 content = content.replace(old, new)
-                open('camoufox-149.0-beta.25/python/mach/mach/site.py', 'w').write(content)
+                open('winfox-149.0-beta.25/python/mach/mach/site.py', 'w').write(content)
                 print('Done')
                 "
 
@@ -135,7 +135,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: CamoufoxBuilds-${{ matrix.target }}-${{ matrix.arch }}
+          name: WinfoxBuilds-${{ matrix.target }}-${{ matrix.arch }}
           path: dist/*
 
   release:

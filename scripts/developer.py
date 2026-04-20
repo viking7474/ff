@@ -12,7 +12,7 @@ from _mixin import find_src_dir, is_bootstrap_patch, list_patches, patch, run, t
 
 
 def into_camoufox_dir():
-    """Cd to the camoufox-* folder"""
+    """Cd to the winfox-* folder"""
     this_script = os.path.dirname(os.path.abspath(__file__))
     # Go one directory up from the current script path
     os.chdir(os.path.dirname(this_script))

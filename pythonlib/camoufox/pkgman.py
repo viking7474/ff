@@ -68,9 +68,9 @@ OS_ARCH_MATRIX: Dict[str, List[str]] = {
 }
 
 LAUNCH_FILE = {
-    'win': 'camoufox.exe',
-    'mac': '../MacOS/camoufox',
-    'lin': 'camoufox-bin',
+    'win': 'winfox.exe',
+    'mac': '../MacOS/winfox',
+    'lin': 'winfox-bin',
 }
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
@@ -707,7 +707,7 @@ def get_path(file: str) -> str:
     Get the path to a file in the camoufox directory
     """
     if OS_NAME == 'mac':
-        return os.path.abspath(camoufox_path() / 'Camoufox.app' / 'Contents' / 'Resources' / file)
+        return os.path.abspath(camoufox_path() / 'Winfox.app' / 'Contents' / 'Resources' / file)
     return str(camoufox_path() / file)
 
 
@@ -718,7 +718,7 @@ def launch_path(browser_path: Optional[Path] = None) -> str:
     if browser_path:
         if OS_NAME == 'mac':
             exec_path = os.path.abspath(
-                browser_path / 'Camoufox.app' / 'Contents' / 'Resources' / LAUNCH_FILE[OS_NAME]
+                browser_path / 'Winfox.app' / 'Contents' / 'Resources' / LAUNCH_FILE[OS_NAME]
             )
         else:
             exec_path = str(browser_path / LAUNCH_FILE[OS_NAME])

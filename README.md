@@ -534,7 +534,7 @@ Patches can be edited, created, removed, and managed through here.
 ### How to make a patch
 
 1. In the developer UI, click **Reset workspace**.
-2. Make changes in the `camoufox-*/` folder as needed. You can test your changes with `make build` and `make run`.
+2. Make changes in the `winfox-*/` folder as needed. You can test your changes with `make build` and `make run`.
 3. After you're done making changes, click **Write workspace to patch** and save the patch file.
 
 ### How to work on an existing patch
@@ -568,7 +568,7 @@ flowchart TD
     G -->|No| H["In the config(6), enable FPP and start omitting overrides until you find the one that fixed the leak."]
     G -->|Yes| I[If you get to this point, you may need to deobfuscate the Javascript behind the website to identify what it's testing.]
     F -->|Yes| K["Open the developer UI, apply the playwright bootstrap patch, then rebuild. Does it still flag?"]
-    F -->|No| J["Omit options from camoufox.cfg(6) and rerun(3) until you find the one causing the leak."]
+    F -->|No| J["Omit options from winfox.cfg(6) and rerun(3) until you find the one causing the leak."]
     K -->|No| M[Juggler needs to be debugged to locate the leak.]
     K -->|Yes| L[The issue has nothing to do with Playwright. Apply the rest of the Camoufox patches one by one until the one causing the leak is found.]
     M --> I
@@ -583,7 +583,7 @@ flowchart TD
 | (3) | `make run`                                    | Runs the built browser.                                                                                     |
 | (4) | `make run args="--headless https://test.com"` | Run a URL in headless mode. All redirects will be printed to the console to determine if the test passed.   |
 | (5) | `make edits`                                  | Opens the developer UI. Allows the user to apply/undo patches, and see which patches are currently applied. |
-| (6) | `make edit-cfg`                               | Edit camoufox.cfg in the default system editor.                                                             |
+| (6) | `make edit-cfg`                               | Edit winfox.cfg in the default system editor.                                                               |
 
 </details>
 

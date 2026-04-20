@@ -1463,7 +1463,7 @@ class RDPBrowser:
             # namespace (patch bug fixed for next build).
             "librewolf.debugger.force_detach": True,
             # Restore session history so back/forward works normally.
-            # camoufox.cfg defaults to 0 which is detectable.
+            # winfox.cfg defaults to 0 which is detectable.
             "browser.sessionhistory.max_entries": 50,
             # Enable async event dispatch so sendMouseEvent crosses
             # Fission process boundaries to reach content.
