@@ -169,37 +169,46 @@ Return the latest URL by querying the page directly.
 1. `await page.text_content(selector)`
 Return the matched element's text content.
 
-2. `await page.inner_html(selector)`
+2. `await page.inner_text(selector)`
+Return the matched element's rendered inner text.
+
+3. `await page.inner_html(selector)`
 Return the matched element's `innerHTML`.
 
-3. `await page.all_text_contents(selector)`
+4. `await page.all_text_contents(selector)`
 Return text content for all matched elements.
 
-4. `await page.get_attribute(selector, name)`
+5. `await page.get_attribute(selector, name)`
 Return the matched element's attribute value.
 
-5. `await page.count(selector)`
+6. `await page.count(selector)`
 Return the number of matched elements.
 
-6. `await page.exists(selector)`
+7. `await page.exists(selector)`
 Return `True` if at least one matching element exists.
 
-7. `await page.has_selector(selector)`
+8. `await page.has_selector(selector)`
 Alias for `exists(selector)`.
 
-8. `await page.wait_for_text(text)`
+9. `await page.is_visible(selector)`
+Return whether the selector currently resolves to a visible element.
+
+10. `await page.is_hidden(selector)`
+Return whether the selector is currently hidden or absent.
+
+11. `await page.wait_for_text(text)`
 Wait until `document.body.innerText` contains the given text.
 
-9. `await page.wait_for_selector_count(selector, n)`
+12. `await page.wait_for_selector_count(selector, n)`
 Wait until a selector matches exactly `n` elements.
 
-10. `await page.wait_until_hidden(selector)`
+13. `await page.wait_until_hidden(selector)`
 Wait until a selector disappears or becomes hidden.
 
-11. `await page.wait_until_visible(selector)`
+14. `await page.wait_until_visible(selector)`
 Wait until a selector becomes visible.
 
-12. `await page.wait_for_selector(selector)`
+15. `await page.wait_for_selector(selector)`
 Wait until the selector is present/visible under the current implementation's rules.
 
 ### Page interaction helpers
@@ -207,19 +216,28 @@ Wait until the selector is present/visible under the current implementation's ru
 1. `await page.click(selector)`
 Click an element by selector.
 
-2. `await page.fill(selector, text)`
+2. `await page.hover(selector)`
+Move the mouse to the selector's visible center.
+
+3. `await page.focus(selector)`
+Focus the matched element.
+
+4. `await page.press(selector, key)`
+Focus the selector and press a keyboard key.
+
+5. `await page.fill(selector, text)`
 Clear the element and type text through the trusted bridge path.
 
-3. `await page.bring_to_front()`
+6. `await page.bring_to_front()`
 Activate the page's tab.
 
-4. `await page.close()`
+7. `await page.close()`
 Close the page's tab and unregister it.
 
-5. `await page.is_active()`
+8. `await page.is_active()`
 Return whether this page currently owns the active tab.
 
-6. `page.is_closed()`
+9. `page.is_closed()`
 Return whether the page has been disposed/closed.
 
 ### Network and diagnostics

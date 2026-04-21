@@ -637,6 +637,13 @@ class RDPPage:
         self._ensure_open()
         return await self.locator(selector).text_content()
 
+    async def inner_text(self, selector: str) -> Optional[str]:
+        self._ensure_open()
+        selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
+        return await self.evaluate(
+            f"(function(){{ var el = document.querySelector('{selector_escaped}'); return el ? el.innerText : null; }})()"
+        )
+
     async def inner_html(self, selector: str) -> Optional[str]:
         self._ensure_open()
         selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
@@ -672,6 +679,26 @@ class RDPPage:
     async def has_selector(self, selector: str) -> bool:
         self._ensure_open()
         return await self.exists(selector)
+
+    async def is_visible(self, selector: str) -> bool:
+        self._ensure_open()
+        selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
+        result = await self.evaluate(
+            f"""(function(){{
+                var el = document.querySelector('{selector_escaped}');
+                if (!el) return false;
+                var style = window.getComputedStyle(el);
+                if (!style) return false;
+                if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+                var r = el.getBoundingClientRect();
+                return !!(r.width > 0 && r.height > 0);
+            }})()"""
+        )
+        return bool(result)
+
+    async def is_hidden(self, selector: str) -> bool:
+        self._ensure_open()
+        return not await self.is_visible(selector)
 
     async def wait_for_text(self, text: str, timeout: int = 5000) -> str:
         self._ensure_open()
@@ -1052,6 +1079,35 @@ class RDPPage:
         x = rect["x"] + rect["w"] / 2
         y = rect["y"] + rect["h"] / 2
         await self.mouse.click_smooth(x, y, target_width=rect.get("w", 50))
+
+    async def hover(self, selector: str) -> None:
+        self._ensure_open()
+        rect = await self.query_selector(selector)
+        if not rect:
+            raise ValueError(f"Element not found: {selector}")
+        x = rect["x"] + rect["w"] / 2
+        y = rect["y"] + rect["h"] / 2
+        await self.mouse.move_smooth(x, y, target_width=rect.get("w", 50))
+
+    async def focus(self, selector: str) -> None:
+        self._ensure_open()
+        selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
+        focused = await self.evaluate(
+            f"""(function(){{
+                var el = document.querySelector('{selector_escaped}');
+                if (!el) return false;
+                if (typeof el.scrollIntoView === 'function') el.scrollIntoView({{ block: 'center', inline: 'center' }});
+                if (typeof el.focus === 'function') el.focus();
+                return document.activeElement === el;
+            }})()"""
+        )
+        if not focused:
+            raise ValueError(f"Element not found or focus failed: {selector}")
+
+    async def press(self, selector: str, key: str) -> None:
+        self._ensure_open()
+        await self.focus(selector)
+        await self.keyboard.press(key)
 
     async def fill(self, selector: str, text: str) -> None:
         self._ensure_open()

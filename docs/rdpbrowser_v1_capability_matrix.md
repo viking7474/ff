@@ -46,12 +46,15 @@ Status values:
 | `query_selector()` | ready | in-page JS | Returns rect metadata |
 | `query_selector_all()` | ready | in-page JS | Returns rect list |
 | `page.text_content()` | ready | locator wrapper | Smoke-covered |
+| `page.inner_text()` | ready | in-page JS helper | Smoke-covered |
 | `page.inner_html()` | ready | in-page JS helper | Smoke-covered |
 | `page.all_text_contents()` | ready | in-page JS helper | Smoke-covered |
 | `page.get_attribute()` | ready | locator wrapper | Smoke-covered |
 | `page.count()` | ready | locator wrapper | Smoke-covered |
 | `page.exists()` | ready | selector count helper | Smoke-covered |
 | `page.has_selector()` | ready | selector existence alias | Smoke-covered |
+| `page.is_visible()` | ready | DOM visibility helper | Smoke-covered |
+| `page.is_hidden()` | ready | DOM visibility helper | Smoke-covered |
 | `page.wait_for_text()` | ready | body text polling | Smoke-covered |
 | `page.wait_for_selector_count()` | ready | selector count polling | Smoke-covered |
 | `page.wait_until_hidden()` | ready | hidden-state wait wrapper | Smoke-covered |
@@ -70,6 +73,9 @@ Status values:
 | mouse click | ready | extension + experiment API | Smoke-validated |
 | mouse wheel | ready | extension + experiment API | Smoke-validated |
 | keyboard press | ready | extension + experiment API | Smoke-validated |
+| hover | ready | selector rect + mouse move | Smoke-covered |
+| focus | ready | in-page JS focus helper | Smoke-covered |
+| press(selector, key) | ready | focus helper + keyboard press | Smoke-covered |
 | fill | ready | click + DOM clear + bridge type | Smoke-validated |
 | locator click | ready | bridge input | Smoke-validated |
 

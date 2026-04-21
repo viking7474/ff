@@ -78,22 +78,25 @@ asyncio.run(main())
 1. `await page.query_selector(selector)` - lay hinh hoc phan tu dau tien match selector.
 2. `await page.query_selector_all(selector)` - lay danh sach hinh hoc cac phan tu match.
 3. `await page.text_content(selector)` - lay text content cua phan tu match.
-4. `await page.inner_html(selector)` - lay noi dung HTML ben trong phan tu match.
-5. `await page.all_text_contents(selector)` - lay text content cua tat ca phan tu match.
-6. `await page.get_attribute(selector, name)` - lay gia tri attribute cua phan tu match.
-7. `await page.count(selector)` - dem so phan tu match selector.
-8. `await page.exists(selector)` - tra ve `True` neu ton tai it nhat 1 phan tu match.
-9. `await page.has_selector(selector)` - alias cua `exists(selector)`.
-10. `await page.wait_for_text(text)` - doi den khi `document.body.innerText` chua chuoi can tim.
-11. `await page.wait_for_selector_count(selector, n)` - doi den khi selector co dung `n` phan tu match.
-12. `await page.wait_until_hidden(selector)` - doi den khi selector bien mat hoac bi hidden.
-13. `await page.wait_until_visible(selector)` - doi den khi selector tro nen visible.
-14. `page.locator(selector)` - tao locator wrapper.
-15. `await locator.wait_for()` - doi locator xuat hien/san sang.
-16. `await locator.text_content()` - lay text content qua locator.
-17. `await locator.get_attribute(name)` - lay attribute qua locator.
-18. `await locator.count()` - dem so phan tu qua locator.
-19. `await page.wait_for_selector(selector)` - doi selector theo implementation hien tai.
+4. `await page.inner_text(selector)` - lay noi dung text render ra gan voi nguoi dung nhin thay.
+5. `await page.inner_html(selector)` - lay noi dung HTML ben trong phan tu match.
+6. `await page.all_text_contents(selector)` - lay text content cua tat ca phan tu match.
+7. `await page.get_attribute(selector, name)` - lay gia tri attribute cua phan tu match.
+8. `await page.count(selector)` - dem so phan tu match selector.
+9. `await page.exists(selector)` - tra ve `True` neu ton tai it nhat 1 phan tu match.
+10. `await page.has_selector(selector)` - alias cua `exists(selector)`.
+11. `await page.is_visible(selector)` - kiem tra selector hien co dang visible hay khong.
+12. `await page.is_hidden(selector)` - kiem tra selector dang hidden hoac khong ton tai.
+13. `await page.wait_for_text(text)` - doi den khi `document.body.innerText` chua chuoi can tim.
+14. `await page.wait_for_selector_count(selector, n)` - doi den khi selector co dung `n` phan tu match.
+15. `await page.wait_until_hidden(selector)` - doi den khi selector bien mat hoac bi hidden.
+16. `await page.wait_until_visible(selector)` - doi den khi selector tro nen visible.
+17. `page.locator(selector)` - tao locator wrapper.
+18. `await locator.wait_for()` - doi locator xuat hien/san sang.
+19. `await locator.text_content()` - lay text content qua locator.
+20. `await locator.get_attribute(name)` - lay attribute qua locator.
+21. `await locator.count()` - dem so phan tu qua locator.
+22. `await page.wait_for_selector(selector)` - doi selector theo implementation hien tai.
 
 ## 5. JS va page content
 
@@ -103,14 +106,17 @@ asyncio.run(main())
 ## 6. Input
 
 1. `await page.click(selector)` - click phan tu bang selector.
-2. `await page.fill(selector, text)` - clear va nhap text bang trusted bridge.
-3. `await page.keyboard.type(text)` - go text tu ban phim.
-4. `await page.keyboard.press(key)` - bam 1 phim.
-5. `await page.mouse.move_smooth(x, y)` - di chuot human-like.
-6. `await page.mouse.click(x, y)` - click tai toa do.
-7. `await page.mouse.click_smooth(x, y)` - move + hover + click.
-8. `await page.mouse.wheel(delta_x, delta_y)` - scroll 1 buoc.
-9. `await page.mouse.wheel_smooth(delta_y)` - scroll human-like.
+2. `await page.hover(selector)` - dua chuot den giua phan tu match.
+3. `await page.focus(selector)` - focus vao phan tu match.
+4. `await page.press(selector, key)` - focus selector roi bam phim.
+5. `await page.fill(selector, text)` - clear va nhap text bang trusted bridge.
+6. `await page.keyboard.type(text)` - go text tu ban phim.
+7. `await page.keyboard.press(key)` - bam 1 phim.
+8. `await page.mouse.move_smooth(x, y)` - di chuot human-like.
+9. `await page.mouse.click(x, y)` - click tai toa do.
+10. `await page.mouse.click_smooth(x, y)` - move + hover + click.
+11. `await page.mouse.wheel(delta_x, delta_y)` - scroll 1 buoc.
+12. `await page.mouse.wheel_smooth(delta_y)` - scroll human-like.
 
 ## 7. Screenshot / state helpers
 
