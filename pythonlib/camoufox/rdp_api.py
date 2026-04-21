@@ -18,6 +18,7 @@ Usage:
 import asyncio
 import base64
 import ctypes
+import inspect
 import json
 import logging
 import os
@@ -193,6 +194,10 @@ class _ExtensionBridge:
         except Exception:
             pass
         finally:
+            for fut in list(self._pending.values()):
+                if not fut.done():
+                    fut.set_exception(ConnectionError("Extension bridge disconnected"))
+            self._pending.clear()
             self._ws = None
             self._connected.clear()
 
@@ -220,9 +225,21 @@ class _ExtensionBridge:
         return result.get("result")
 
     async def stop(self):
+        if self._ws:
+            try:
+                await self._ws.close()
+            except Exception:
+                pass
+            self._ws = None
+        for fut in list(self._pending.values()):
+            if not fut.done():
+                fut.set_exception(ConnectionError("Extension bridge stopped"))
+        self._pending.clear()
+        self._connected.clear()
         if self._server:
             self._server.close()
             await self._server.wait_closed()
+            self._server = None
 
     @property
     def is_connected(self) -> bool:
@@ -243,6 +260,7 @@ class RDPPage:
         tab_id: Optional[int] = None,
     ):
         self._client = client
+        self._loop = asyncio.get_running_loop()
         self._tab_actor_id = tab_actor_id
         self._target_actor_id = target_actor_id
         self._console_actor_id = console_actor_id
@@ -253,8 +271,101 @@ class RDPPage:
         self._console_started = False
         self._target_ver = 0
         self._watcher_id = None
+        self._persistent_target_cb = None
+        self._persistent_console_cb = None
+        self._persistent_console_id = None
+        self._event_listeners: Dict[str, List[Any]] = {}
+        self._closed = False
         self.mouse = _Mouse(self)
         self.keyboard = _Keyboard(self)
+
+    def _emit_event(self, event: str, payload: Any) -> None:
+        callbacks = list(self._event_listeners.get(event, []))
+        for callback in callbacks:
+            try:
+                result = callback(payload)
+                if inspect.isawaitable(result):
+                    self._loop.create_task(result)
+            except Exception:
+                logger.exception("Unhandled RDPPage event callback error for %s", event)
+
+    def _emit_event_threadsafe(self, event: str, payload: Any) -> None:
+        if self._closed:
+            return
+        self._loop.call_soon_threadsafe(self._emit_event, event, payload)
+
+    def _detach_persistent_console_listener(self) -> None:
+        if self._persistent_console_id and self._persistent_console_cb:
+            try:
+                self._client.remove_event_listener(
+                    self._persistent_console_id,
+                    Events.WebConsole.DOCUMENT_EVENT,
+                    self._persistent_console_cb,
+                )
+            except Exception:
+                pass
+        self._persistent_console_id = None
+        self._persistent_console_cb = None
+
+    def _attach_persistent_console_listener(self, console_id: str) -> None:
+        if not console_id or self._closed:
+            return
+        if self._persistent_console_id == console_id and self._persistent_console_cb:
+            return
+
+        self._detach_persistent_console_listener()
+        WebConsoleActor(self._client, console_id).start_listeners(
+            [WebConsoleActor.Listeners.DOCUMENT_EVENTS]
+        )
+
+        def _on_doc_event(data):
+            evt_url = data.get("url", "")
+            if evt_url:
+                self._url = evt_url
+            name = data.get("name", "")
+            payload = {"name": name, "url": evt_url, "page": self}
+            if name == "dom-interactive":
+                self._emit_event_threadsafe("domcontentloaded", payload)
+            if name == "dom-complete":
+                self._emit_event_threadsafe("load", payload)
+
+        self._client.add_event_listener(
+            console_id, Events.WebConsole.DOCUMENT_EVENT, _on_doc_event
+        )
+        self._persistent_console_id = console_id
+        self._persistent_console_cb = _on_doc_event
+
+    def _watch_target(self, target: Dict[str, Any]) -> None:
+        if self._closed:
+            return
+        if target.get("isTopLevelTarget"):
+            new_actor = target.get("actor", "")
+            new_console = target.get("consoleActor", "")
+            if new_console and new_console != self._console_actor_id:
+                self._console_actor_id = new_console
+                self._console_started = False
+                self._attach_persistent_console_listener(new_console)
+            if new_actor:
+                self._target_actor_id = new_actor
+            bc = target.get("browsingContextID")
+            if bc is not None:
+                self._browsing_context_id = bc
+            new_url = target.get("url", "")
+            if new_url and new_url.startswith("http"):
+                self._url = new_url
+                self._emit_event_threadsafe(
+                    "framenavigated",
+                    {
+                        "url": new_url,
+                        "browsingContextID": self._browsing_context_id,
+                        "targetActorId": self._target_actor_id,
+                        "page": self,
+                    },
+                )
+            self._target_ver += 1
+            logger.debug(
+                f"Persistent watcher: target updated v{self._target_ver} -> {new_console}"
+            )
 
     async def _idle_mouse_loop(self):
         """Subtle micro-movements while waiting, mimicking human idle behavior."""
@@ -332,31 +443,29 @@ class RDPPage:
         watcher = WatcherActor(self._client, self._watcher_id)
         watcher.watch_targets(WatcherActor.Targets.FRAME)
 
+        self._attach_persistent_console_listener(self._console_actor_id)
+
         def _on_target(data):
-            t = data.get("target", {})
-            if t.get("isTopLevelTarget"):
-                new_actor = t.get("actor", "")
-                new_console = t.get("consoleActor", "")
-                if new_console and new_console != self._console_actor_id:
-                    self._console_actor_id = new_console
-                    self._console_started = False
-                if new_actor:
-                    self._target_actor_id = new_actor
-                bc = t.get("browsingContextID")
-                if bc is not None:
-                    self._browsing_context_id = bc
-                new_url = t.get("url", "")
-                if new_url and new_url.startswith("http"):
-                    self._url = new_url
-                self._target_ver += 1
-                logger.debug(
-                    f"Persistent watcher: target updated v{self._target_ver} -> {new_console}"
-                )
+            self._watch_target(data.get("target", {}))
 
         self._client.add_event_listener(
             self._watcher_id, Events.Watcher.TARGET_AVAILABLE_FORM, _on_target
         )
         self._persistent_target_cb = _on_target
+
+    def dispose(self) -> None:
+        self._closed = True
+        self._detach_persistent_console_listener()
+        if self._watcher_id and self._persistent_target_cb:
+            try:
+                self._client.remove_event_listener(
+                    self._watcher_id,
+                    Events.Watcher.TARGET_AVAILABLE_FORM,
+                    self._persistent_target_cb,
+                )
+            except Exception:
+                pass
+        self._persistent_target_cb = None
 
     def _refresh_target(self):
         tab = TabActor(self._client, self._tab_actor_id)
@@ -487,10 +596,15 @@ class RDPPage:
         def _on_doc_event(data):
             logger.debug(f"goto DOCUMENT_EVENT: {data}")
             name = data.get("name", "")
+            evt_url = data.get("url", "")
+            if evt_url:
+                self._url = evt_url
+            payload = {"name": name, "url": evt_url, "page": self}
+            if name == "dom-interactive":
+                self._emit_event_threadsafe("domcontentloaded", payload)
+            if name == "dom-complete":
+                self._emit_event_threadsafe("load", payload)
             if name == goal or name == "dom-complete":
-                evt_url = data.get("url", "")
-                if evt_url:
-                    self._url = evt_url
                 loop.call_soon_threadsafe(load_done.set)
 
         def _attach_console_listener(console_id):
@@ -626,10 +740,15 @@ class RDPPage:
 
         def _on_evt(data):
             name = data.get("name", "")
+            evt_url = data.get("url", "")
+            if evt_url:
+                self._url = evt_url
+            payload = {"name": name, "url": evt_url, "page": self}
+            if name == "dom-interactive":
+                self._emit_event_threadsafe("domcontentloaded", payload)
+            if name == "dom-complete":
+                self._emit_event_threadsafe("load", payload)
             if name == goal or name == "dom-complete":
-                evt_url = data.get("url", "")
-                if evt_url:
-                    self._url = evt_url
                 loop.call_soon_threadsafe(done.set)
 
         await asyncio.to_thread(
@@ -665,10 +784,15 @@ class RDPPage:
 
         def _on_evt(data):
             name = data.get("name", "")
+            evt_url = data.get("url", "")
+            if evt_url:
+                self._url = evt_url
+            payload = {"name": name, "url": evt_url, "page": self}
+            if name == "dom-interactive":
+                self._emit_event_threadsafe("domcontentloaded", payload)
+            if name == "dom-complete":
+                self._emit_event_threadsafe("load", payload)
             if name == goal or name == "dom-complete":
-                evt_url = data.get("url", "")
-                if evt_url:
-                    self._url = evt_url
                 loop.call_soon_threadsafe(done.set)
 
         await asyncio.to_thread(
@@ -758,16 +882,26 @@ class RDPPage:
     async def fill(self, selector: str, text: str) -> None:
         await self.click(selector)
         await asyncio.sleep(0.1)
-        # Clear existing value via select-all + delete
+        # Clear existing value via DOM assignment first. The native keyPress
+        # bridge currently only supports a plain `key`, not modifier combos.
+        selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
+        await self.evaluate(
+            """
+            (function() {
+              const el = document.querySelector('%s');
+              if (!el) return false;
+              if ('value' in el) {
+                el.value = '';
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+                return true;
+              }
+              return false;
+            })()
+            """
+            % selector_escaped
+        )
         if self._bridge and self._bridge.is_connected and self._tab_id is not None:
-            await self._bridge.send_command(
-                "keyPress", {"tabId": self._tab_id, "key": "a", "modifiers": 4}
-            )
-            await asyncio.sleep(0.05)
-            await self._bridge.send_command(
-                "keyPress", {"tabId": self._tab_id, "key": "Backspace"}
-            )
-            await asyncio.sleep(0.05)
             await self._bridge.send_command(
                 "type", {"tabId": self._tab_id, "text": text}
             )
@@ -816,18 +950,20 @@ class RDPPage:
         return data
 
     def on(self, event: str, callback) -> None:
-        """Register event listener (stub for Playwright compatibility).
-        Network events like 'requestfinished' are not available via RDP."""
-        if not hasattr(self, "_event_listeners"):
-            self._event_listeners = {}
+        """Register a page event listener.
+
+        Supported events: load, domcontentloaded, framenavigated.
+        """
         self._event_listeners.setdefault(event, []).append(callback)
-        logger.debug(f"Event listener registered (stub): {event}")
+        logger.debug("Event listener registered: %s", event)
 
     def remove_listener(self, event: str, callback) -> None:
-        """Remove event listener (stub for Playwright compatibility)."""
-        if hasattr(self, "_event_listeners") and event in self._event_listeners:
+        """Remove a previously-registered page event listener."""
+        if event in self._event_listeners:
             try:
                 self._event_listeners[event].remove(callback)
+                if not self._event_listeners[event]:
+                    self._event_listeners.pop(event, None)
             except ValueError:
                 pass
 
@@ -875,7 +1011,6 @@ class RDPPage:
                 responses = result.get("responses", []) if result else []
                 for r in responses:
                     if url_pattern in r.get("url", ""):
-                        await self._bridge.send_command("clearCaptures", {})
                         return r
             await asyncio.sleep(0.5)
         return None
@@ -1569,6 +1704,57 @@ class RDPBrowser:
         self._bridge: Optional[_ExtensionBridge] = None
         self._temp_profile = False
         self._temp_dirs: List[str] = []
+        self._pages: List[RDPPage] = []
+
+    async def _get_active_tab_id(self) -> Optional[int]:
+        if self._bridge and self._bridge.is_connected:
+            try:
+                result = await self._bridge.send_command("getActiveTab", {}, timeout=3)
+                if result:
+                    return result.get("tabId")
+            except Exception:
+                pass
+        return None
+
+    def _snapshot_tabs(self) -> Dict[str, Dict[str, Any]]:
+        root = RootActor(self._client)
+        tabs = root.list_tabs() or []
+        return {
+            tab.get("actor", ""): tab
+            for tab in tabs
+            if isinstance(tab, dict) and tab.get("actor")
+        }
+
+    def _build_page_from_tab(self, tab_actor_id: str, tab_id: Optional[int] = None) -> RDPPage:
+        tab = TabActor(self._client, tab_actor_id)
+        target = tab.get_target()
+        if not target or not isinstance(target, dict) or not target.get("actor"):
+            raise RuntimeError(f"Failed to resolve target for tab actor {tab_actor_id}")
+        page = RDPPage(
+            client=self._client,
+            tab_actor_id=tab_actor_id,
+            target_actor_id=target.get("actor", ""),
+            console_actor_id=target.get("consoleActor", ""),
+            browsing_context_id=target.get("browsingContextID"),
+            bridge=self._bridge,
+            tab_id=tab_id,
+        )
+        page._start_persistent_watcher()
+        self._pages.append(page)
+        return page
+
+    async def _wait_for_new_tab_actor(
+        self, previous_tab_ids: set[str], timeout: float = 10.0
+    ) -> str:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            current_tabs = await asyncio.to_thread(self._snapshot_tabs)
+            current_ids = set(current_tabs.keys())
+            new_ids = current_ids - previous_tab_ids
+            if new_ids:
+                return next(iter(new_ids))
+            await asyncio.sleep(0.2)
+        raise TimeoutError("Timed out waiting for a new tab actor")
 
     async def __aenter__(self) -> "RDPBrowser":
         await self.start()
@@ -1735,23 +1921,26 @@ class RDPBrowser:
         await self._bridge.start()
 
         env = os.environ.copy()
+        runtime_config = {"allowAddonNewtab": True}
         if self._fingerprint:
             # Full fingerprint config: strip _meta, chunk for Windows env var limit
             fp_config = {
                 k: v for k, v in self._fingerprint.items() if not k.startswith("_")
             }
-            config_str = json.dumps(fp_config)
+            runtime_config.update(fp_config)
             chunk_size = 2047
-            for i in range(0, len(config_str), chunk_size):
-                chunk = config_str[i : i + chunk_size]
-                env[f"CAMOU_CONFIG_{(i // chunk_size) + 1}"] = chunk
             if self._timezone:
                 env["TZ"] = self._timezone
         elif self._timezone:
             env["TZ"] = self._timezone
-            config = {"timezone": self._timezone}
-            config_str = json.dumps(config)
-            env["CAMOU_CONFIG_1"] = config_str
+        if self._timezone:
+            runtime_config["timezone"] = self._timezone
+
+        config_str = json.dumps(runtime_config)
+        chunk_size = 2047
+        for i in range(0, len(config_str), chunk_size):
+            chunk = config_str[i : i + chunk_size]
+            env[f"CAMOU_CONFIG_{(i // chunk_size) + 1}"] = chunk
 
         logger.info(f"Launching Camoufox RDP on port {self._rdp_port}")
         self._proc = subprocess.Popen(args, env=env)
@@ -1871,42 +2060,55 @@ class RDPBrowser:
             return False
 
     async def new_page(self) -> RDPPage:
-        for attempt in range(10):
-            root = RootActor(self._client)
-            tabs = root.list_tabs()
-            if tabs and isinstance(tabs, list) and len(tabs) > 0:
-                tab_desc = tabs[0]
-                tab_actor_id = tab_desc.get("actor", "")
-                tab = TabActor(self._client, tab_actor_id)
-                target = tab.get_target()
-                if target and isinstance(target, dict) and target.get("actor"):
-                    tab_id = None
-                    if self._bridge and self._bridge.is_connected:
-                        try:
-                            result = await self._bridge.send_command(
-                                "getActiveTab", {}, timeout=3
-                            )
-                            if result:
-                                tab_id = result.get("tabId")
-                        except Exception:
-                            pass
+        if not self._client:
+            raise RuntimeError("RDP client is not connected")
 
-                    page = RDPPage(
-                        client=self._client,
-                        tab_actor_id=tab_actor_id,
-                        target_actor_id=target.get("actor", ""),
-                        console_actor_id=target.get("consoleActor", ""),
-                        browsing_context_id=target.get("browsingContextID"),
-                        bridge=self._bridge,
-                        tab_id=tab_id,
-                    )
-                    await asyncio.to_thread(page._start_persistent_watcher)
-                    return page
-            await asyncio.sleep(1)
+        previous_tabs = await asyncio.to_thread(self._snapshot_tabs)
 
-        raise RuntimeError("No tabs available after waiting")
+        # First page after launch: attach the existing startup tab. This keeps
+        # bootstrap robust even if addon tab creation races the initial browser
+        # window/tab initialization.
+        if not self._pages and previous_tabs:
+            first_actor = next(iter(previous_tabs))
+            return self._build_page_from_tab(first_actor, await self._get_active_tab_id())
+
+        bridge_tab_id = None
+
+        if self._bridge and self._bridge.is_connected:
+            try:
+                result = await self._bridge.send_command(
+                    "createTab", {"url": "about:blank", "active": True}, timeout=5
+                )
+                if result:
+                    bridge_tab_id = result.get("tabId")
+            except Exception:
+                if self._pages:
+                    await self._pages[-1].evaluate("window.open('about:blank', '_blank'); true")
+                    try:
+                        active_tab = await self._bridge.send_command(
+                            "getActiveTab", {}, timeout=3
+                        )
+                        if active_tab:
+                            bridge_tab_id = active_tab.get("tabId")
+                    except Exception:
+                        pass
+        elif previous_tabs:
+            # Fallback for environments without extension support: attach to the
+            # first available tab instead of failing completely.
+            first_actor = next(iter(previous_tabs))
+            return self._build_page_from_tab(first_actor, None)
+
+        new_tab_actor_id = await self._wait_for_new_tab_actor(set(previous_tabs.keys()))
+        return self._build_page_from_tab(new_tab_actor_id, bridge_tab_id)
 
     async def close(self) -> None:
+        for page in list(self._pages):
+            try:
+                page.dispose()
+            except Exception:
+                pass
+        self._pages.clear()
+
         if self._bridge:
             await self._bridge.stop()
             self._bridge = None

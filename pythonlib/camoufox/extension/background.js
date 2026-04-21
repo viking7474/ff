@@ -281,6 +281,15 @@ function connect() {
           break;
         }
 
+        case "createTab": {
+          const tab = await browser.tabs.create({
+            url: params.url || "about:blank",
+            active: params.active !== false,
+          });
+          result = { tabId: tab.id, url: tab.url };
+          break;
+        }
+
         case "screenshot": {
           const dataUrl = await browser.tabs.captureVisibleTab(null, {
             format: "png",
