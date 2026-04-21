@@ -137,6 +137,7 @@ Documentation:
 2. `docs/rdpbrowser_v1_capability_matrix.md`
 3. `docs/rdpbrowser_vs_juggler.md`
 4. `docs/rdpbrowser_troubleshooting.md`
+5. `docs/rdpbrowser_vi.md`
 
 Manual smoke suite:
 

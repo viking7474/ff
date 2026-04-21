@@ -633,6 +633,101 @@ class RDPPage:
         result = await self.evaluate("document.title")
         return result if isinstance(result, str) else ""
 
+    async def text_content(self, selector: str) -> Optional[str]:
+        self._ensure_open()
+        return await self.locator(selector).text_content()
+
+    async def inner_html(self, selector: str) -> Optional[str]:
+        self._ensure_open()
+        selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
+        return await self.evaluate(
+            f"(function(){{ var el = document.querySelector('{selector_escaped}'); return el ? el.innerHTML : null; }})()"
+        )
+
+    async def all_text_contents(self, selector: str) -> List[str]:
+        self._ensure_open()
+        selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
+        result = await self.evaluate(
+            f"(function(){{ return JSON.stringify(Array.from(document.querySelectorAll('{selector_escaped}')).map(el => el.textContent || '')); }})()"
+        )
+        if isinstance(result, str):
+            try:
+                return json.loads(result)
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return []
+
+    async def get_attribute(self, selector: str, name: str) -> Optional[str]:
+        self._ensure_open()
+        return await self.locator(selector).get_attribute(name)
+
+    async def count(self, selector: str) -> int:
+        self._ensure_open()
+        return await self.locator(selector).count()
+
+    async def exists(self, selector: str) -> bool:
+        self._ensure_open()
+        return (await self.count(selector)) > 0
+
+    async def has_selector(self, selector: str) -> bool:
+        self._ensure_open()
+        return await self.exists(selector)
+
+    async def wait_for_text(self, text: str, timeout: int = 5000) -> str:
+        self._ensure_open()
+        deadline = time.time() + (timeout / 1000)
+        escaped = text.replace("\\", "\\\\").replace("'", "\\'")
+        while time.time() < deadline:
+            found = await self.evaluate(
+                f"document.body && document.body.innerText.includes('{escaped}')"
+            )
+            if found:
+                return text
+            await asyncio.sleep(0.1)
+        raise TimeoutError(f"Text {text!r} not found within {timeout}ms")
+
+    async def wait_for_selector_count(
+        self, selector: str, n: int, timeout: int = 5000
+    ) -> int:
+        self._ensure_open()
+        deadline = time.time() + (timeout / 1000)
+        while time.time() < deadline:
+            count = await self.count(selector)
+            if count == n:
+                return count
+            await asyncio.sleep(0.1)
+        raise TimeoutError(
+            f"Selector {selector!r} did not reach count {n} within {timeout}ms"
+        )
+
+    async def wait_until_hidden(self, selector: str, timeout: int = 5000) -> None:
+        self._ensure_open()
+        await self.wait_for_selector(selector, state="hidden", timeout=timeout)
+
+    async def wait_until_visible(self, selector: str, timeout: int = 5000) -> None:
+        self._ensure_open()
+        await self.wait_for_selector(selector, state="visible", timeout=timeout)
+
+    async def wait_for_url(self, pattern: str, timeout: int = 30000) -> str:
+        self._ensure_open()
+        deadline = time.time() + (timeout / 1000)
+        while time.time() < deadline:
+            current = await self.url_fresh()
+            if pattern in current:
+                return current
+            await asyncio.sleep(0.1)
+        raise TimeoutError(f"URL did not match pattern {pattern!r} within {timeout}ms")
+
+    async def is_active(self) -> bool:
+        self._ensure_open()
+        if not self._bridge or not self._bridge.is_connected or self._tab_id is None:
+            return False
+        try:
+            result = await self._bridge.send_command("getActiveTab", {}, timeout=3)
+            return bool(result and result.get("tabId") == self._tab_id)
+        except Exception:
+            return False
+
     async def goto(
         self, url: str, wait_until: str = "load", timeout: int = 30000
     ) -> None:
@@ -1894,8 +1989,50 @@ class RDPBrowser:
         self._pages = [page for page in self._pages if not page.is_closed()]
         return list(self._pages)
 
+    async def get_active_page(self) -> Optional[RDPPage]:
+        if not self._bridge or not self._bridge.is_connected:
+            return None
+        try:
+            result = await self._bridge.send_command("getActiveTab", {}, timeout=3)
+        except Exception:
+            return None
+        if not result:
+            return None
+        tab_id = result.get("tabId")
+        if tab_id is None:
+            return None
+        page = self._pages_by_tab_id.get(tab_id)
+        return page if page and not page.is_closed() else None
+
+    async def page_by_url(self, pattern: str) -> Optional[RDPPage]:
+        for page in self.list_pages():
+            try:
+                current = await page.url_fresh()
+            except Exception:
+                continue
+            if pattern in current:
+                return page
+        return None
+
+    async def pages_by_url(self, pattern: str) -> List[RDPPage]:
+        matches: List[RDPPage] = []
+        for page in self.list_pages():
+            try:
+                current = await page.url_fresh()
+            except Exception:
+                continue
+            if pattern in current:
+                matches.append(page)
+        return matches
+
     async def close_all_pages(self) -> None:
         for page in list(self.list_pages()):
+            await self._close_page(page)
+
+    async def close_other_pages(self, keep_page: RDPPage) -> None:
+        for page in list(self.list_pages()):
+            if page is keep_page:
+                continue
             await self._close_page(page)
 
     async def _close_page(self, page: RDPPage) -> None:

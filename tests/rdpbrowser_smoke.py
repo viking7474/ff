@@ -81,6 +81,44 @@ async def test_selectors(reporter):
         await run_test(reporter, "locator.text_content()", locator.text_content())
         await run_test(reporter, "locator.get_attribute(class)", locator.get_attribute("class"))
         await run_test(reporter, "locator.count()", locator.count())
+        await run_test(reporter, "page.text_content(h1)", page.text_content("h1"))
+        await run_test(reporter, "page.inner_html(body)", page.inner_html("body"))
+        await run_test(reporter, "page.all_text_contents(a)", page.all_text_contents("a"))
+        await run_test(reporter, "page.get_attribute(a, href)", page.get_attribute("a", "href"))
+        await run_test(reporter, "page.count(a)", page.count("a"))
+        await run_test(reporter, "page.exists(h1)", page.exists("h1"))
+        await run_test(reporter, "page.has_selector(body)", page.has_selector("body"))
+        await run_test(reporter, "page.wait_for_text(Example Domain)", page.wait_for_text("Example Domain", timeout=5000))
+        await run_test(reporter, "page.wait_for_selector_count(a, 1)", page.wait_for_selector_count("a", 1, timeout=5000))
+        await run_test(reporter, "page.wait_until_visible(h1)", page.wait_until_visible("h1", timeout=5000))
+        await run_test(reporter, "page.wait_for_url(example.com)", page.wait_for_url("example.com", timeout=5000))
+
+
+async def test_wait_until_hidden(reporter):
+    async with await make_browser(21, headless=False) as browser:
+        page = await browser.new_page()
+        await page.goto("https://example.com")
+        await page.wait_for_load_state("load")
+        await run_test(
+            reporter,
+            "inject temporary hidden target",
+            page.evaluate(
+                """
+                (() => {
+                  const el = document.createElement('div');
+                  el.id = 'rdp-hide-test';
+                  document.body.appendChild(el);
+                  setTimeout(() => el.remove(), 200);
+                  return true;
+                })()
+                """
+            ),
+        )
+        await run_test(
+            reporter,
+            "page.wait_until_hidden(#rdp-hide-test)",
+            page.wait_until_hidden("#rdp-hide-test", timeout=5000),
+        )
 
 
 async def test_input_basic(reporter):
@@ -232,6 +270,29 @@ async def test_new_page_model(reporter):
                 "PASS" if len(pages_before_close) >= 2 else "FAIL",
                 f"count={len(pages_before_close)}",
             )
+            active_page = await browser.get_active_page()
+            reporter.add(
+                "browser.get_active_page()",
+                "PASS" if active_page is page2 else "FAIL",
+                f"active_is_page2={active_page is page2}",
+            )
+            page_by_url = await browser.page_by_url("httpbin.org/html")
+            reporter.add(
+                "browser.page_by_url(httpbin)",
+                "PASS" if page_by_url is page2 else "FAIL",
+                f"matched_page2={page_by_url is page2}",
+            )
+            pages_by_url = await browser.pages_by_url("http")
+            reporter.add(
+                "browser.pages_by_url(http)",
+                "PASS" if len(pages_by_url) >= 2 else "FAIL",
+                f"count={len(pages_by_url)}",
+            )
+            reporter.add(
+                "page2.is_active()",
+                "PASS" if await page2.is_active() else "FAIL",
+                f"page2_active={await page2.is_active()}",
+            )
             await page2.close()
             pages_after_close = browser.list_pages()
             reporter.add(
@@ -250,6 +311,18 @@ async def test_new_page_model(reporter):
                 "PASS" if url1_after_close == url1 else "FAIL",
                 f"before={url1}, after={url1_after_close}",
             )
+            await page1.bring_to_front()
+            active_page_after = await browser.get_active_page()
+            reporter.add(
+                "browser.get_active_page() after bring_to_front",
+                "PASS" if active_page_after is page1 else "FAIL",
+                f"active_is_page1={active_page_after is page1}",
+            )
+            reporter.add(
+                "page1.is_active()",
+                "PASS" if await page1.is_active() else "FAIL",
+                f"page1_active={await page1.is_active()}",
+            )
             page3 = await browser.new_page()
             await page3.goto("https://example.com/?page=3")
             await page3.wait_for_load_state("load")
@@ -258,6 +331,14 @@ async def test_new_page_model(reporter):
                 "PASS",
                 f"count={len(browser.list_pages())}",
             )
+            await browser.close_other_pages(page1)
+            reporter.add(
+                "browser.close_other_pages(page1)",
+                "PASS" if len(browser.list_pages()) == 1 and browser.list_pages()[0] is page1 else "FAIL",
+                f"count={len(browser.list_pages())}",
+            )
+            await page1.goto("https://example.com/?page=kept")
+            await page1.wait_for_load_state("load")
             await browser.close_all_pages()
             reporter.add(
                 "browser.close_all_pages()",
@@ -289,6 +370,7 @@ async def main():
 
     await test_single_core(reporter)
     await test_selectors(reporter)
+    await test_wait_until_hidden(reporter)
     await test_input_basic(reporter)
     await test_click_and_locator_click(reporter)
     await test_reload_and_cookies(reporter)

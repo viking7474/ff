@@ -25,11 +25,17 @@ Status values:
 | `page.close()` | ready | extension tab removal + registry cleanup | Smoke-covered |
 | `page.bring_to_front()` | ready | extension tab activation | Smoke-covered |
 | `browser.close_all_pages()` | ready | browser page lifecycle | Smoke-covered |
+| `browser.page_by_url()` | ready | page registry + URL polling | Smoke-covered |
+| `browser.pages_by_url()` | ready | page registry + URL polling | Smoke-covered |
+| `browser.close_other_pages()` | ready | browser page lifecycle | Smoke-covered |
 | `goto()` | ready | extension/RDP + document events | Smoke-validated |
 | `reload()` | ready | RDP + document events | Smoke-validated |
 | `wait_for_load_state()` | ready | document events | Smoke-validated |
 | `url_fresh()` | ready | evaluation + state refresh | Smoke-validated |
 | `page.title()` | ready | page evaluation helper | Smoke-covered |
+| `page.wait_for_url()` | ready | polling + URL evaluation | Smoke-covered |
+| `browser.get_active_page()` | ready | bridge active-tab lookup + page registry | Smoke-covered |
+| `page.is_active()` | ready | bridge active-tab lookup | Smoke-covered |
 
 ## DOM and Selectors
 
@@ -39,6 +45,17 @@ Status values:
 | `content()` | ready | in-page JS | Smoke-validated |
 | `query_selector()` | ready | in-page JS | Returns rect metadata |
 | `query_selector_all()` | ready | in-page JS | Returns rect list |
+| `page.text_content()` | ready | locator wrapper | Smoke-covered |
+| `page.inner_html()` | ready | in-page JS helper | Smoke-covered |
+| `page.all_text_contents()` | ready | in-page JS helper | Smoke-covered |
+| `page.get_attribute()` | ready | locator wrapper | Smoke-covered |
+| `page.count()` | ready | locator wrapper | Smoke-covered |
+| `page.exists()` | ready | selector count helper | Smoke-covered |
+| `page.has_selector()` | ready | selector existence alias | Smoke-covered |
+| `page.wait_for_text()` | ready | body text polling | Smoke-covered |
+| `page.wait_for_selector_count()` | ready | selector count polling | Smoke-covered |
+| `page.wait_until_hidden()` | ready | hidden-state wait wrapper | Smoke-covered |
+| `page.wait_until_visible()` | ready | visible-state wait wrapper | Smoke-covered |
 | `wait_for_selector()` | ready | JS observer/polling | Smoke-validated |
 | `locator.wait_for()` | ready | JS observer/polling | Smoke-validated |
 | `locator.text_content()` | ready | in-page JS | Smoke-validated |

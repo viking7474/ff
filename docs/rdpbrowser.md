@@ -79,6 +79,7 @@ async def main():
         await page.goto("https://example.com")
         await page.wait_for_load_state("load")
         print(await page.title())
+        print(await page.text_content("h1"))
         await page.screenshot("rdp_example.png")
 
 
@@ -107,14 +108,136 @@ async def main():
         await page2.goto("https://httpbin.org/html")
 
         print(len(browser.list_pages()))
+        print(await browser.get_active_page() is page2)
 
         await page1.bring_to_front()
+        print(await page1.is_active())
         await page2.close()
         await browser.close_all_pages()
 
 
 asyncio.run(main())
 ```
+
+## API Overview
+
+### Browser methods
+
+1. `await browser.new_page()`
+Creates a new controllable page. The first call binds the startup tab; later calls create new tabs in the same window.
+
+2. `browser.list_pages()`
+Returns the currently tracked live `RDPPage` objects.
+
+3. `await browser.get_active_page()`
+Returns the currently active tracked page, if the extension bridge can resolve the active tab.
+
+4. `await browser.page_by_url(pattern)`
+Finds the first tracked page whose current URL contains `pattern`.
+
+5. `await browser.pages_by_url(pattern)`
+Returns all tracked pages whose current URL contains `pattern`.
+
+6. `await browser.close_other_pages(page)`
+Closes every tracked page except the one you keep.
+
+7. `await browser.close_all_pages()`
+Closes all tracked pages and clears the page registry.
+
+### Page navigation and state
+
+1. `await page.goto(url)`
+Navigate to a URL.
+
+2. `await page.reload()`
+Reload the current page.
+
+3. `await page.wait_for_load_state(state)`
+Wait for `load` or `domcontentloaded` style readiness.
+
+4. `await page.wait_for_url(pattern)`
+Wait until the current URL contains a substring.
+
+5. `await page.title()`
+Return `document.title`.
+
+6. `await page.url_fresh()`
+Return the latest URL by querying the page directly.
+
+### Page DOM helpers
+
+1. `await page.text_content(selector)`
+Return the matched element's text content.
+
+2. `await page.inner_html(selector)`
+Return the matched element's `innerHTML`.
+
+3. `await page.all_text_contents(selector)`
+Return text content for all matched elements.
+
+4. `await page.get_attribute(selector, name)`
+Return the matched element's attribute value.
+
+5. `await page.count(selector)`
+Return the number of matched elements.
+
+6. `await page.exists(selector)`
+Return `True` if at least one matching element exists.
+
+7. `await page.has_selector(selector)`
+Alias for `exists(selector)`.
+
+8. `await page.wait_for_text(text)`
+Wait until `document.body.innerText` contains the given text.
+
+9. `await page.wait_for_selector_count(selector, n)`
+Wait until a selector matches exactly `n` elements.
+
+10. `await page.wait_until_hidden(selector)`
+Wait until a selector disappears or becomes hidden.
+
+11. `await page.wait_until_visible(selector)`
+Wait until a selector becomes visible.
+
+12. `await page.wait_for_selector(selector)`
+Wait until the selector is present/visible under the current implementation's rules.
+
+### Page interaction helpers
+
+1. `await page.click(selector)`
+Click an element by selector.
+
+2. `await page.fill(selector, text)`
+Clear the element and type text through the trusted bridge path.
+
+3. `await page.bring_to_front()`
+Activate the page's tab.
+
+4. `await page.close()`
+Close the page's tab and unregister it.
+
+5. `await page.is_active()`
+Return whether this page currently owns the active tab.
+
+6. `page.is_closed()`
+Return whether the page has been disposed/closed.
+
+### Network and diagnostics
+
+1. `await page.start_capture(patterns)` / `await page.get_captured_responses()`
+Capture response bodies matching URL patterns.
+
+2. `await page.start_spy(patterns)` / `await page.get_spied_requests()`
+Capture request metadata and response bodies for matching URLs.
+
+3. `await page.wait_for_response(pattern)`
+Wait until a captured response appears.
+
+4. `await page.memory_usage()`
+Read the current tab's memory metrics.
+
+5. `await page.force_gc()`
+Force GC and cycle collection for the current tab.
 
 ## Multi-Instance Usage
 
@@ -184,6 +307,10 @@ python tests\rdpbrowser_windows_cleanup_check.py
 ## Supported Surface
 
 See `docs/rdpbrowser_v1_capability_matrix.md` for the current supported surface and maturity levels.
+
+## Vietnamese Reference
+
+See `docs/rdpbrowser_vi.md` for a Vietnamese overview of the available `RDPBrowser` functions and a compact usage example.
 
 ## Comparison With Juggler
 
