@@ -5,6 +5,10 @@ from pathlib import Path
 from camoufox.rdp_api import RDPBrowser
 
 
+if os.name == "nt":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
 WINFOX_PATH = os.environ.get("WINFOX_PATH", "")
 RDP_PORT = int(os.environ.get("RDP_PORT", "6300"))
 WS_PORT = int(os.environ.get("WS_PORT", "9000"))

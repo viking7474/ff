@@ -5,6 +5,10 @@ from pathlib import Path
 from camoufox.rdp_api import RDPBrowser
 
 
+if os.name == "nt":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
 WINFOX_PATH = os.environ.get("WINFOX_PATH", "")
 ROUNDS = int(os.environ.get("STRESS_ROUNDS", "5"))
 TABS_PER_ROUND = int(os.environ.get("TABS_PER_ROUND", "3"))

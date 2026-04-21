@@ -21,10 +21,15 @@ Status values:
 | Capability | Status | Backend | Notes |
 |---|---|---|---|
 | `new_page()` | ready | extension + RDP tab attach | Same window, new tab |
+| `list_pages()` | ready | browser page registry | Smoke-covered |
+| `page.close()` | ready | extension tab removal + registry cleanup | Smoke-covered |
+| `page.bring_to_front()` | ready | extension tab activation | Smoke-covered |
+| `browser.close_all_pages()` | ready | browser page lifecycle | Smoke-covered |
 | `goto()` | ready | extension/RDP + document events | Smoke-validated |
 | `reload()` | ready | RDP + document events | Smoke-validated |
 | `wait_for_load_state()` | ready | document events | Smoke-validated |
 | `url_fresh()` | ready | evaluation + state refresh | Smoke-validated |
+| `page.title()` | ready | page evaluation helper | Smoke-covered |
 
 ## DOM and Selectors
 

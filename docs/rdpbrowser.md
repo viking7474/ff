@@ -78,8 +78,39 @@ async def main():
         page = await browser.new_page()
         await page.goto("https://example.com")
         await page.wait_for_load_state("load")
-        print(await page.evaluate("document.title"))
+        print(await page.title())
         await page.screenshot("rdp_example.png")
+
+
+asyncio.run(main())
+```
+
+## Multi-Tab Example
+
+```python
+import asyncio
+
+from camoufox.rdp_api import RDPBrowser
+
+
+async def main():
+    async with RDPBrowser(
+        executable_path=r"C:\path\to\winfox.exe",
+        headless=False,
+        rdp_port=6000,
+        ws_port=8775,
+    ) as browser:
+        page1 = await browser.new_page()
+        await page1.goto("https://example.com")
+
+        page2 = await browser.new_page()
+        await page2.goto("https://httpbin.org/html")
+
+        print(len(browser.list_pages()))
+
+        await page1.bring_to_front()
+        await page2.close()
+        await browser.close_all_pages()
 
 
 asyncio.run(main())
@@ -157,3 +188,7 @@ See `docs/rdpbrowser_v1_capability_matrix.md` for the current supported surface 
 ## Comparison With Juggler
 
 See `docs/rdpbrowser_vs_juggler.md` for the current repository positioning and a direct comparison against legacy Juggler automation.
+
+## Troubleshooting
+
+See `docs/rdpbrowser_troubleshooting.md` for common runtime failures and the recommended debug order.

@@ -628,6 +628,11 @@ class RDPPage:
             pass
         return self._url
 
+    async def title(self) -> str:
+        self._ensure_open()
+        result = await self.evaluate("document.title")
+        return result if isinstance(result, str) else ""
+
     async def goto(
         self, url: str, wait_until: str = "load", timeout: int = 30000
     ) -> None:
@@ -1888,6 +1893,10 @@ class RDPBrowser:
     def list_pages(self) -> List[RDPPage]:
         self._pages = [page for page in self._pages if not page.is_closed()]
         return list(self._pages)
+
+    async def close_all_pages(self) -> None:
+        for page in list(self.list_pages()):
+            await self._close_page(page)
 
     async def _close_page(self, page: RDPPage) -> None:
         if page.is_closed():

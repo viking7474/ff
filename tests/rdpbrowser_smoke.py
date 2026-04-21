@@ -6,6 +6,10 @@ from pathlib import Path
 from camoufox.rdp_api import RDPBrowser
 
 
+if os.name == "nt":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
 WINFOX_PATH = os.environ.get("WINFOX_PATH", "")
 TEST_RDP_PORT_BASE = int(os.environ.get("RDP_PORT_BASE", "6100"))
 TEST_WS_PORT_BASE = int(os.environ.get("WS_PORT_BASE", "8800"))
@@ -57,6 +61,7 @@ async def test_single_core(reporter):
         page = await browser.new_page()
         await run_test(reporter, "goto example.com", page.goto("https://example.com"))
         await run_test(reporter, "wait_for_load_state(load)", page.wait_for_load_state("load"))
+        await run_test(reporter, "page.title()", page.title())
         await run_test(reporter, "evaluate document.title", page.evaluate("document.title"))
         await run_test(reporter, "content()", page.content())
         await run_test(reporter, "screenshot()", page.screenshot("core_single.png"))
@@ -216,10 +221,48 @@ async def test_new_page_model(reporter):
             url1 = await page1.url_fresh()
             url2 = await page2.url_fresh()
             same = page1 is page2
+            pages_before_close = browser.list_pages()
             reporter.add(
                 "new_page() multi-page model",
                 "PARTIAL" if same or url1 == url2 else "PASS",
                 f"same_object={same}, url1={url1}, url2={url2}",
+            )
+            reporter.add(
+                "browser.list_pages() before close",
+                "PASS" if len(pages_before_close) >= 2 else "FAIL",
+                f"count={len(pages_before_close)}",
+            )
+            await page2.close()
+            pages_after_close = browser.list_pages()
+            reporter.add(
+                "page.close()",
+                "PASS" if page2.is_closed() else "FAIL",
+                f"page2_closed={page2.is_closed()}",
+            )
+            reporter.add(
+                "browser.list_pages() after close",
+                "PASS" if len(pages_after_close) == 1 else "FAIL",
+                f"count={len(pages_after_close)}",
+            )
+            url1_after_close = await page1.url_fresh()
+            reporter.add(
+                "page1 survives page2.close()",
+                "PASS" if url1_after_close == url1 else "FAIL",
+                f"before={url1}, after={url1_after_close}",
+            )
+            page3 = await browser.new_page()
+            await page3.goto("https://example.com/?page=3")
+            await page3.wait_for_load_state("load")
+            reporter.add(
+                "browser.close_all_pages() pre-count",
+                "PASS",
+                f"count={len(browser.list_pages())}",
+            )
+            await browser.close_all_pages()
+            reporter.add(
+                "browser.close_all_pages()",
+                "PASS" if len(browser.list_pages()) == 0 else "FAIL",
+                f"count={len(browser.list_pages())}",
             )
         except Exception as exc:
             reporter.add("new_page() multi-page model", "FAIL", f"{type(exc).__name__}: {exc}")
