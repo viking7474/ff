@@ -290,6 +290,18 @@ function connect() {
           break;
         }
 
+        case "activateTab": {
+          const tab = await browser.tabs.update(params.tabId, { active: true });
+          result = { tabId: tab.id, url: tab.url, active: tab.active };
+          break;
+        }
+
+        case "closeTab": {
+          await browser.tabs.remove(params.tabId);
+          result = { ok: true, tabId: params.tabId };
+          break;
+        }
+
         case "screenshot": {
           const dataUrl = await browser.tabs.captureVisibleTab(null, {
             format: "png",

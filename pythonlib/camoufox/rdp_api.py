@@ -251,6 +251,7 @@ class RDPPage:
 
     def __init__(
         self,
+        browser: "RDPBrowser",
         client: RDPClient,
         tab_actor_id: str,
         target_actor_id: str,
@@ -259,6 +260,7 @@ class RDPPage:
         bridge: Optional[_ExtensionBridge] = None,
         tab_id: Optional[int] = None,
     ):
+        self._browser = browser
         self._client = client
         self._loop = asyncio.get_running_loop()
         self._tab_actor_id = tab_actor_id
@@ -278,6 +280,9 @@ class RDPPage:
         self._closed = False
         self.mouse = _Mouse(self)
         self.keyboard = _Keyboard(self)
+
+    def is_closed(self) -> bool:
+        return self._closed
 
     def _emit_event(self, event: str, payload: Any) -> None:
         callbacks = list(self._event_listeners.get(event, []))
@@ -466,6 +471,18 @@ class RDPPage:
             except Exception:
                 pass
         self._persistent_target_cb = None
+
+    async def bring_to_front(self) -> None:
+        if self._closed:
+            raise RuntimeError("Page is closed")
+        if not self._bridge or not self._bridge.is_connected or self._tab_id is None:
+            raise ConnectionError("Extension bridge not connected or tab ID unavailable")
+        await self._bridge.send_command("activateTab", {"tabId": self._tab_id}, timeout=5)
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        await self._browser._close_page(self)
 
     def _refresh_target(self):
         tab = TabActor(self._client, self._tab_actor_id)
@@ -1705,6 +1722,8 @@ class RDPBrowser:
         self._temp_profile = False
         self._temp_dirs: List[str] = []
         self._pages: List[RDPPage] = []
+        self._pages_by_tab_actor: Dict[str, RDPPage] = {}
+        self._pages_by_tab_id: Dict[int, RDPPage] = {}
 
     async def _get_active_tab_id(self) -> Optional[int]:
         if self._bridge and self._bridge.is_connected:
@@ -1725,12 +1744,46 @@ class RDPBrowser:
             if isinstance(tab, dict) and tab.get("actor")
         }
 
+    def _register_page(self, page: RDPPage) -> RDPPage:
+        existing = self._pages_by_tab_actor.get(page._tab_actor_id)
+        if existing and existing is not page:
+            try:
+                existing.dispose()
+            except Exception:
+                pass
+            self._unregister_page(existing)
+        self._pages_by_tab_actor[page._tab_actor_id] = page
+        if page._tab_id is not None:
+            self._pages_by_tab_id[page._tab_id] = page
+        if page not in self._pages:
+            self._pages.append(page)
+        return page
+
+    def _unregister_page(self, page: RDPPage) -> None:
+        self._pages_by_tab_actor.pop(page._tab_actor_id, None)
+        if page._tab_id is not None:
+            self._pages_by_tab_id.pop(page._tab_id, None)
+        try:
+            self._pages.remove(page)
+        except ValueError:
+            pass
+
     def _build_page_from_tab(self, tab_actor_id: str, tab_id: Optional[int] = None) -> RDPPage:
+        existing = self._pages_by_tab_actor.get(tab_actor_id)
+        if existing and not existing.is_closed():
+            if tab_id is not None and existing._tab_id != tab_id:
+                if existing._tab_id is not None:
+                    self._pages_by_tab_id.pop(existing._tab_id, None)
+                existing._tab_id = tab_id
+                self._pages_by_tab_id[tab_id] = existing
+            return existing
+
         tab = TabActor(self._client, tab_actor_id)
         target = tab.get_target()
         if not target or not isinstance(target, dict) or not target.get("actor"):
             raise RuntimeError(f"Failed to resolve target for tab actor {tab_actor_id}")
         page = RDPPage(
+            browser=self,
             client=self._client,
             tab_actor_id=tab_actor_id,
             target_actor_id=target.get("actor", ""),
@@ -1740,8 +1793,19 @@ class RDPBrowser:
             tab_id=tab_id,
         )
         page._start_persistent_watcher()
-        self._pages.append(page)
-        return page
+        return self._register_page(page)
+
+    def list_pages(self) -> List[RDPPage]:
+        self._pages = [page for page in self._pages if not page.is_closed()]
+        return list(self._pages)
+
+    async def _close_page(self, page: RDPPage) -> None:
+        if page.is_closed():
+            return
+        if self._bridge and self._bridge.is_connected and page._tab_id is not None:
+            await self._bridge.send_command("closeTab", {"tabId": page._tab_id}, timeout=5)
+        page.dispose()
+        self._unregister_page(page)
 
     async def _wait_for_new_tab_actor(
         self, previous_tab_ids: set[str], timeout: float = 10.0

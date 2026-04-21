@@ -19,6 +19,9 @@ Winfox is an open source anti-detect browser for robust fingerprint injection & 
 > The primary SDK is now the TypeScript + Playwright `winfox` package in `packages/winfox`.
 
 > [!NOTE]
+> The repository also ships a working Firefox RDP automation path for Python. See `docs/rdpbrowser.md` and `tests/rdpbrowser_smoke.py`.
+
+> [!NOTE]
 > Browser development is active at [github.com/CloverLabsAI/camoufox](https://github.com/CloverLabsAI/camoufox). ([See activity](https://github.com/CloverLabsAI/camoufox/activity))<br>
 
 > [!NOTE] 
@@ -121,6 +124,19 @@ Winfox is an open source anti-detect browser for robust fingerprint injection & 
 # Introduction
 
 Camoufox is a modern & effective open source solution for avoiding bot detection and intelligent fingerprint rotation.
+
+## RDPBrowser
+
+The repo includes `RDPBrowser`, a Firefox RDP-based automation backend that avoids using Playwright/Juggler as the primary runtime transport.
+
+Documentation:
+
+1. `docs/rdpbrowser.md`
+2. `docs/rdpbrowser_v1_capability_matrix.md`
+
+Manual smoke suite:
+
+1. `tests/rdpbrowser_smoke.py`
 
 ## Highlights
 
