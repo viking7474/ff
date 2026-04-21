@@ -7,14 +7,21 @@
 </div>
 
 > [!WARNING]
-> This Python package is deprecated. New development has moved to the TypeScript + Playwright `winfox` package in `packages/winfox`.
+> The historical Playwright-oriented Python surface in this package should be treated as legacy in this repository.
 
 > [!NOTE]
-> The Python package is kept only as a legacy compatibility layer while the repo transitions to the Node/TypeScript workflow.
+> The repository now has a working Python automation path based on `RDPBrowser` (Firefox RDP + extension bridge). For that path, see `docs/rdpbrowser.md` and `tests/rdpbrowser_smoke.py`.
 
 ---
 
 ## What is this?
+
+This package currently contains two different Python-facing stories:
+
+1. legacy Playwright/Camoufox helpers
+2. `RDPBrowser`, the preferred stealth-first automation path for this repo
+
+If you are starting new Python automation work here, use `RDPBrowser` first.
 
 This Python library wraps around Playwright's API to help automatically generate & inject unique device characteristics (OS, CPU info, navigator, fonts, headers, screen dimensions, viewport size, WebGL, addons, etc.) into Camoufox.
 

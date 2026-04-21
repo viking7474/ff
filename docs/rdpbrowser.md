@@ -4,6 +4,8 @@
 
 It is designed for stealth-first automation without relying on Playwright/Juggler as the primary runtime transport.
 
+In this repository, `RDPBrowser` should be treated as the primary Python automation path.
+
 ## Architecture
 
 `RDPBrowser` uses three layers:
@@ -127,6 +129,31 @@ The smoke suite validates:
 7. Minimal event support
 8. Multi-page tab attachment
 
+## Stress Scripts
+
+The repo also includes focused stress scripts:
+
+1. `tests/rdpbrowser_stress_launch_close.py`
+2. `tests/rdpbrowser_stress_multi_instance.py`
+3. `tests/rdpbrowser_stress_multi_tab.py`
+4. `tests/rdpbrowser_windows_cleanup_check.py`
+
+Use them to validate repeated runs, multi-instance behavior, multi-tab lifecycle, and Windows cleanup/port reuse.
+
+Example:
+
+```bash
+set WINFOX_PATH=C:\path\to\winfox.exe
+python tests\rdpbrowser_stress_launch_close.py
+python tests\rdpbrowser_stress_multi_instance.py
+python tests\rdpbrowser_stress_multi_tab.py
+python tests\rdpbrowser_windows_cleanup_check.py
+```
+
 ## Supported Surface
 
 See `docs/rdpbrowser_v1_capability_matrix.md` for the current supported surface and maturity levels.
+
+## Comparison With Juggler
+
+See `docs/rdpbrowser_vs_juggler.md` for the current repository positioning and a direct comparison against legacy Juggler automation.

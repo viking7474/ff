@@ -1,6 +1,12 @@
 # Playwright Maintenance Guide
 
-This document describes how to maintain Playwright integration in Camoufox.
+> [!WARNING]
+> This document is now a legacy/reference guide in this repository. The primary Python automation direction has moved to `RDPBrowser`. Use this guide only when you are explicitly maintaining historical Playwright/Juggler integration.
+
+> [!NOTE]
+> For the current Python automation path, see `docs/rdpbrowser.md` and `docs/rdpbrowser_vs_juggler.md`.
+
+This document describes how to maintain legacy Playwright/Juggler integration in the codebase.
 
 ## Overview
 

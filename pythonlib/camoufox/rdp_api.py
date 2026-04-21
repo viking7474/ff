@@ -278,13 +278,40 @@ class RDPPage:
         self._persistent_console_id = None
         self._event_listeners: Dict[str, List[Any]] = {}
         self._closed = False
+        self._nav_lock = asyncio.Lock()
+        self._last_emitted_event: Dict[str, tuple] = {}
         self.mouse = _Mouse(self)
         self.keyboard = _Keyboard(self)
 
     def is_closed(self) -> bool:
         return self._closed
 
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise RuntimeError("Page is closed")
+
+    def _make_event_payload(self, event: str, name: str = "", url: str = "") -> Dict[str, Any]:
+        return {
+            "event": event,
+            "name": name,
+            "url": url or self._url,
+            "page": self,
+            "tabId": self._tab_id,
+            "tabActorId": self._tab_actor_id,
+            "targetActorId": self._target_actor_id,
+            "browsingContextID": self._browsing_context_id,
+            "timestamp": int(time.time() * 1000),
+        }
+
     def _emit_event(self, event: str, payload: Any) -> None:
+        signature = (
+            payload.get("url") if isinstance(payload, dict) else None,
+            payload.get("targetActorId") if isinstance(payload, dict) else None,
+            payload.get("browsingContextID") if isinstance(payload, dict) else None,
+        )
+        if self._last_emitted_event.get(event) == signature:
+            return
+        self._last_emitted_event[event] = signature
         callbacks = list(self._event_listeners.get(event, []))
         for callback in callbacks:
             try:
@@ -328,7 +355,11 @@ class RDPPage:
             if evt_url:
                 self._url = evt_url
             name = data.get("name", "")
-            payload = {"name": name, "url": evt_url, "page": self}
+            payload = self._make_event_payload(
+                "domcontentloaded" if name == "dom-interactive" else "load",
+                name=name,
+                url=evt_url,
+            )
             if name == "dom-interactive":
                 self._emit_event_threadsafe("domcontentloaded", payload)
             if name == "dom-complete":
@@ -360,12 +391,11 @@ class RDPPage:
                 self._url = new_url
                 self._emit_event_threadsafe(
                     "framenavigated",
-                    {
-                        "url": new_url,
-                        "browsingContextID": self._browsing_context_id,
-                        "targetActorId": self._target_actor_id,
-                        "page": self,
-                    },
+                    self._make_event_payload(
+                        "framenavigated",
+                        name="target-available",
+                        url=new_url,
+                    ),
                 )
             self._target_ver += 1
             logger.debug(
@@ -473,8 +503,7 @@ class RDPPage:
         self._persistent_target_cb = None
 
     async def bring_to_front(self) -> None:
-        if self._closed:
-            raise RuntimeError("Page is closed")
+        self._ensure_open()
         if not self._bridge or not self._bridge.is_connected or self._tab_id is None:
             raise ConnectionError("Extension bridge not connected or tab ID unavailable")
         await self._bridge.send_command("activateTab", {"tabId": self._tab_id}, timeout=5)
@@ -571,6 +600,8 @@ class RDPPage:
 
     @property
     def url(self) -> str:
+        if self._closed:
+            return self._url
         # Live evaluate for backward compat (CAPTCHA loops rely on fresh value).
         # Events also update _url during goto/reload for faster access.
         try:
@@ -587,6 +618,7 @@ class RDPPage:
         return self._url
 
     async def url_fresh(self) -> str:
+        self._ensure_open()
         """Async explicit evaluate for exact URL."""
         try:
             result = await self.evaluate("window.location.href")
@@ -597,6 +629,13 @@ class RDPPage:
         return self._url
 
     async def goto(
+        self, url: str, wait_until: str = "load", timeout: int = 30000
+    ) -> None:
+        self._ensure_open()
+        async with self._nav_lock:
+            await self._goto_impl(url, wait_until=wait_until, timeout=timeout)
+
+    async def _goto_impl(
         self, url: str, wait_until: str = "load", timeout: int = 30000
     ) -> None:
         loop = asyncio.get_running_loop()
@@ -748,6 +787,7 @@ class RDPPage:
     async def _wait_for_doc_event(
         self, goal: str = "dom-complete", timeout_s: float = 30.0
     ) -> None:
+        self._ensure_open()
         """Wait for a WebConsoleActor DOCUMENT_EVENT matching *goal*.
         Used by reload() and wait_for_load_state() where no cross-process
         nav is expected so we only listen on the current console."""
@@ -760,7 +800,11 @@ class RDPPage:
             evt_url = data.get("url", "")
             if evt_url:
                 self._url = evt_url
-            payload = {"name": name, "url": evt_url, "page": self}
+            payload = self._make_event_payload(
+                "domcontentloaded" if name == "dom-interactive" else "load",
+                name=name,
+                url=evt_url,
+            )
             if name == "dom-interactive":
                 self._emit_event_threadsafe("domcontentloaded", payload)
             if name == "dom-complete":
@@ -791,6 +835,11 @@ class RDPPage:
                 pass
 
     async def reload(self, timeout: int = 30000) -> None:
+        self._ensure_open()
+        async with self._nav_lock:
+            await self._reload_impl(timeout=timeout)
+
+    async def _reload_impl(self, timeout: int = 30000) -> None:
         loop = asyncio.get_running_loop()
         goal = "dom-complete"
         timeout_s = timeout / 1000
@@ -804,7 +853,11 @@ class RDPPage:
             evt_url = data.get("url", "")
             if evt_url:
                 self._url = evt_url
-            payload = {"name": name, "url": evt_url, "page": self}
+            payload = self._make_event_payload(
+                "domcontentloaded" if name == "dom-interactive" else "load",
+                name=name,
+                url=evt_url,
+            )
             if name == "dom-interactive":
                 self._emit_event_threadsafe("domcontentloaded", payload)
             if name == "dom-complete":
@@ -841,9 +894,11 @@ class RDPPage:
                 pass
 
     async def content(self) -> str:
+        self._ensure_open()
         return await self.evaluate("document.documentElement.outerHTML") or ""
 
     async def evaluate(self, expression: str) -> Any:
+        self._ensure_open()
         expr = expression.strip()
         auto_called = False
         # Playwright compat: auto-call arrow/function expressions
@@ -878,6 +933,7 @@ class RDPPage:
         return result
 
     async def query_selector(self, selector: str) -> Optional[Dict]:
+        self._ensure_open()
         result = await self.evaluate(
             f"(function(){{ var el = document.querySelector('{selector}');"
             f"if(!el) return null;"
@@ -889,6 +945,7 @@ class RDPPage:
         return None
 
     async def click(self, selector: str) -> None:
+        self._ensure_open()
         rect = await self.query_selector(selector)
         if not rect:
             raise ValueError(f"Element not found: {selector}")
@@ -897,6 +954,7 @@ class RDPPage:
         await self.mouse.click_smooth(x, y, target_width=rect.get("w", 50))
 
     async def fill(self, selector: str, text: str) -> None:
+        self._ensure_open()
         await self.click(selector)
         await asyncio.sleep(0.1)
         # Clear existing value via DOM assignment first. The native keyPress
@@ -928,6 +986,7 @@ class RDPPage:
             )
 
     async def screenshot(self, path: Optional[str] = None) -> bytes:
+        self._ensure_open()
         if self._bridge and self._bridge.is_connected:
             result = await self._bridge.send_command("screenshot", {})
             if result and result.get("dataUrl"):
@@ -967,6 +1026,7 @@ class RDPPage:
         return data
 
     def on(self, event: str, callback) -> None:
+        self._ensure_open()
         """Register a page event listener.
 
         Supported events: load, domcontentloaded, framenavigated.
@@ -975,6 +1035,7 @@ class RDPPage:
         logger.debug("Event listener registered: %s", event)
 
     def remove_listener(self, event: str, callback) -> None:
+        self._ensure_open()
         """Remove a previously-registered page event listener."""
         if event in self._event_listeners:
             try:
@@ -987,6 +1048,7 @@ class RDPPage:
     # --- Network capture via extension filterResponseData ---
 
     async def start_capture(self, patterns: list) -> None:
+        self._ensure_open()
         """Start capturing HTTP responses whose URL contains any of the patterns.
         Captured via extension filterResponseData (invisible to page JS)."""
         if not self._bridge or not self._bridge.is_connected:
@@ -996,11 +1058,13 @@ class RDPPage:
         logger.info(f"Network capture started for patterns: {patterns}")
 
     async def stop_capture(self) -> None:
+        self._ensure_open()
         """Stop capturing network responses."""
         if self._bridge and self._bridge.is_connected:
             await self._bridge.send_command("stopCapture", {})
 
     async def get_captured_responses(self, clear: bool = True) -> list:
+        self._ensure_open()
         """Get captured network responses. Returns list of {url, body, timestamp}."""
         if not self._bridge or not self._bridge.is_connected:
             return []
@@ -1016,6 +1080,7 @@ class RDPPage:
     async def wait_for_response(
         self, url_pattern: str, timeout: float = 30.0
     ) -> Optional[dict]:
+        self._ensure_open()
         """Wait until a captured response matching url_pattern appears.
         Returns the response dict {url, body, timestamp} or None on timeout."""
         deadline = time.time() + timeout
@@ -1033,6 +1098,7 @@ class RDPPage:
         return None
 
     async def start_spy(self, patterns: list) -> None:
+        self._ensure_open()
         """Start spying on outgoing requests matching URL patterns.
         Captures request headers, body, and response body."""
         if not self._bridge or not self._bridge.is_connected:
@@ -1042,11 +1108,13 @@ class RDPPage:
         logger.info(f"Request spy started for patterns: {patterns}")
 
     async def stop_spy(self) -> None:
+        self._ensure_open()
         """Stop spying on requests."""
         if self._bridge and self._bridge.is_connected:
             await self._bridge.send_command("stopSpy", {})
 
     async def get_spied_requests(self, clear: bool = False) -> list:
+        self._ensure_open()
         """Get spied requests. Returns list of {url, method, headers, body, responseBody, timestamp}."""
         if not self._bridge or not self._bridge.is_connected:
             return []
@@ -1058,6 +1126,13 @@ class RDPPage:
         return requests
 
     async def wait_for_load_state(
+        self, state: str = "load", timeout: int = 30000
+    ) -> None:
+        self._ensure_open()
+        async with self._nav_lock:
+            await self._wait_for_load_state_impl(state=state, timeout=timeout)
+
+    async def _wait_for_load_state_impl(
         self, state: str = "load", timeout: int = 30000
     ) -> None:
         # Quick check: already at target state?
@@ -1077,6 +1152,7 @@ class RDPPage:
         return target.get("memoryActor", "")
 
     async def clear_cookies(self, domain: Optional[str] = None) -> int:
+        self._ensure_open()
         """Clear cookies via the WebExtension bridge.
         Returns the number of cookies removed.
         If domain is given, only cookies for that domain are removed.
@@ -1099,6 +1175,7 @@ class RDPPage:
             return 0
 
     async def force_gc(self) -> None:
+        self._ensure_open()
         """Force garbage + cycle collection on the current tab."""
 
         def _gc():
@@ -1114,6 +1191,7 @@ class RDPPage:
         await asyncio.to_thread(_gc)
 
     async def memory_usage(self) -> Optional[Dict]:
+        self._ensure_open()
         """Return memory measurement for the current tab."""
 
         def _measure():
@@ -1131,6 +1209,7 @@ class RDPPage:
     async def wait_for_network_idle(
         self, idle_ms: int = 500, timeout: int = 30000
     ) -> None:
+        self._ensure_open()
         """Wait until no network requests are pending for *idle_ms* ms.
         Uses WatcherActor NETWORK_EVENT resource tracking."""
         loop = asyncio.get_running_loop()
@@ -1495,6 +1574,7 @@ class _Mouse:
         self._y: float = _r.uniform(200, 500)
 
     async def _raw_move(self, x: float, y: float) -> None:
+        self._page._ensure_open()
         if (
             self._page._bridge
             and self._page._bridge.is_connected
@@ -1512,6 +1592,7 @@ class _Mouse:
             self._x, self._y = path[-1][0], path[-1][1]
 
     async def click(self, x: float, y: float, button: int = 0) -> None:
+        self._page._ensure_open()
         """Click at (x, y) with humanized movement first.
 
         Always moves the cursor with sigma-lognormal before clicking, so
@@ -1536,11 +1617,13 @@ class _Mouse:
             await self._page.evaluate(f"document.elementFromPoint({self._x},{self._y})?.click()")
 
     async def move(self, x: float, y: float) -> None:
+        self._page._ensure_open()
         """Instant move (no animation). Use move_smooth() for human-like."""
         await self._raw_move(x, y)
         self._x, self._y = x, y
 
     async def move_smooth(self, x: float, y: float, target_width: float = 50.0) -> None:
+        self._page._ensure_open()
         """Human-like mouse movement with sub-movements, overshoot, tremor."""
         path = _generate_path(self._x, self._y, x, y, target_width)
         await self._follow_path(path)
@@ -1548,12 +1631,14 @@ class _Mouse:
     async def click_smooth(
         self, x: float, y: float, button: int = 0, target_width: float = 50.0
     ) -> None:
+        self._page._ensure_open()
         """Human-like: move to target, hover delay, click."""
         await self.move_smooth(x, y, target_width)
         await asyncio.sleep(_hover_delay())
         await self.click(self._x, self._y, button)
 
     async def down(self, x: float, y: float, button: int = 0) -> None:
+        self._page._ensure_open()
         if (
             self._page._bridge
             and self._page._bridge.is_connected
@@ -1565,6 +1650,7 @@ class _Mouse:
             )
 
     async def up(self, x: float, y: float, button: int = 0) -> None:
+        self._page._ensure_open()
         if (
             self._page._bridge
             and self._page._bridge.is_connected
@@ -1576,6 +1662,7 @@ class _Mouse:
             )
 
     async def wheel(self, delta_x: float, delta_y: float) -> None:
+        self._page._ensure_open()
         """Single wheel event. Use wheel_smooth() for human-like scrolling."""
         if (
             self._page._bridge
@@ -1594,6 +1681,7 @@ class _Mouse:
             )
 
     async def wheel_smooth(self, delta_y: float) -> None:
+        self._page._ensure_open()
         """Human-like scroll: bursts with momentum decay and reading pauses."""
         from camoufox.humanize import scroll_sequence
 
@@ -1609,6 +1697,7 @@ class _Keyboard:
         self._page = page
 
     async def type(self, text: str, instant: bool = False) -> None:
+        self._page._ensure_open()
         """Type text character-by-character with log-normal inter-key delays.
 
         Shopee SFU SDK tracks 5 keyboard events with timestamps. Typing the
@@ -1639,6 +1728,7 @@ class _Keyboard:
             await asyncio.sleep(delay)
 
     async def press(self, key: str) -> None:
+        self._page._ensure_open()
         if (
             self._page._bridge
             and self._page._bridge.is_connected
@@ -1802,8 +1892,16 @@ class RDPBrowser:
     async def _close_page(self, page: RDPPage) -> None:
         if page.is_closed():
             return
+        remaining_pages = [p for p in self._pages if p is not page and not p.is_closed()]
         if self._bridge and self._bridge.is_connected and page._tab_id is not None:
-            await self._bridge.send_command("closeTab", {"tabId": page._tab_id}, timeout=5)
+            if remaining_pages:
+                await self._bridge.send_command("closeTab", {"tabId": page._tab_id}, timeout=5)
+            else:
+                try:
+                    await page.evaluate("window.location.replace('about:blank')")
+                    await page.wait_for_load_state("load", timeout=5000)
+                except Exception:
+                    pass
         page.dispose()
         self._unregister_page(page)
 
