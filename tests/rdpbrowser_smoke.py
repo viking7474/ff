@@ -607,6 +607,15 @@ async def test_event_api(reporter):
                     "PASS" if finished[0].get("state") == "finished" else "FAIL",
                     str(finished[0].get("state")),
                 )
+            request_ids = {item.get("requestId") for item in requests if item.get("requestId") is not None}
+            response_ids = {item.get("requestId") for item in responses if item.get("requestId") is not None}
+            finished_ids = {item.get("requestId") for item in finished if item.get("requestId") is not None}
+            common_ids = request_ids & response_ids & finished_ids
+            reporter.add(
+                'request/response/finished correlation',
+                "PASS" if len(common_ids) > 0 else "FAIL",
+                f"common_ids={len(common_ids)}",
+            )
 
             await page.evaluate(
                 """
@@ -629,6 +638,11 @@ async def test_event_api(reporter):
                     'requestfailed payload keys',
                     "PASS" if all(k in failed[0] for k in ["requestId", "state", "url", "error", "timestamp"]) else "FAIL",
                     str(sorted(failed[0].keys())),
+                )
+                reporter.add(
+                    'requestfailed payload state',
+                    "PASS" if failed[0].get("state") == "failed" else "FAIL",
+                    str(failed[0].get("state")),
                 )
         except Exception as exc:
             reporter.add("page.on/remove_listener", "FAIL", f"{type(exc).__name__}: {exc}")

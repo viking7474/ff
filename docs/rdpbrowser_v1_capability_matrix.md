@@ -124,10 +124,10 @@ Status values:
 | `page.on("load")` | ready | document events | Smoke-validated |
 | `page.on("domcontentloaded")` | ready | document events | Implemented |
 | `page.on("framenavigated")` | partial | watcher target updates | Implemented, not smoke-covered yet |
-| `page.on("request")` | ready | bridge request event polling | Smoke-covered, standardized payload |
-| `page.on("response")` | ready | bridge response event polling | Smoke-covered, standardized payload |
-| `page.on("requestfinished")` | ready | bridge spy completion events | Smoke-covered, carries `state=finished` |
-| `page.on("requestfailed")` | partial | bridge spy failure events | Best-effort, smoke-covered, carries `error` |
+| `page.on("request")` | ready | bridge request event polling | Smoke-covered, standardized payload with `requestId` |
+| `page.on("response")` | ready | bridge response event polling | Smoke-covered, standardized payload with `requestId` |
+| `page.on("requestfinished")` | ready | bridge spy completion events | Smoke-covered, carries `state=finished`, correlates by `requestId` |
+| `page.on("requestfailed")` | partial | bridge spy failure events | Best-effort, smoke-covered, carries `state=failed` and `error` |
 
 ## Dialogs
 

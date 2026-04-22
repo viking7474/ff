@@ -182,6 +182,8 @@ Payload event network hien tai thuong co:
 11. `timestamp`
 12. `page`
 
+Trong nhieu truong hop, `request`, `response`, va `requestfinished` co the doi chieu voi nhau qua cung `requestId`.
+
 ## 12. Dialogs
 
 1. `await page.expect_dialog(timeout=5000)` - doi dialog thuc dung duoc shim tu `alert/confirm/prompt`.

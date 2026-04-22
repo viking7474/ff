@@ -332,6 +332,7 @@ class RDPPage:
         self._request_event_ts = 0
         self._spy_event_ts = 0
         self._seen_network_events: set[tuple] = set()
+        self._seen_network_event_order: List[tuple] = []
         self._dialog_shim_ready = False
         self._dialog_last_id = 0
         self.mouse = _Mouse(self)
@@ -379,6 +380,33 @@ class RDPPage:
         if self._closed:
             return
         self._loop.call_soon_threadsafe(self._emit_event, event, payload)
+
+    def _remember_network_event(self, signature: tuple) -> bool:
+        if signature in self._seen_network_events:
+            return False
+        self._seen_network_events.add(signature)
+        self._seen_network_event_order.append(signature)
+        if len(self._seen_network_event_order) > 1000:
+            old = self._seen_network_event_order.pop(0)
+            self._seen_network_events.discard(old)
+        return True
+
+    def _make_network_event_payload(self, event: str, item: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "event": event,
+            "state": item.get("state"),
+            "requestId": item.get("requestId"),
+            "url": item.get("url", ""),
+            "method": item.get("method", "GET"),
+            "headers": item.get("headers"),
+            "requestBody": item.get("body"),
+            "responseHeaders": item.get("responseHeaders"),
+            "responseBody": item.get("responseBody"),
+            "status": item.get("status"),
+            "error": item.get("error"),
+            "timestamp": item.get("timestamp"),
+            "page": self,
+        }
 
     async def _ensure_dialog_shim(self) -> None:
         if self._dialog_shim_ready:
@@ -510,24 +538,10 @@ class RDPPage:
                 for req in requests:
                     self._request_event_ts = max(self._request_event_ts, req.get("timestamp", 0))
                     signature = (req.get("requestId"), "request", req.get("timestamp", 0))
-                    if signature in self._seen_network_events:
+                    if not self._remember_network_event(signature):
                         continue
-                    self._seen_network_events.add(signature)
-                    payload = {
-                        "event": "request",
-                        "state": req.get("state", "request"),
-                        "requestId": req.get("requestId"),
-                        "url": req.get("url", ""),
-                        "method": req.get("method", "GET"),
-                        "headers": req.get("headers"),
-                        "requestBody": req.get("body"),
-                        "responseBody": req.get("responseBody"),
-                        "responseHeaders": req.get("responseHeaders"),
-                        "status": req.get("status"),
-                        "error": req.get("error"),
-                        "timestamp": req.get("timestamp"),
-                        "page": self,
-                    }
+                    payload = self._make_network_event_payload("request", req)
+                    payload["state"] = payload["state"] or "request"
                     self._emit_event("request", payload)
 
                 spy_result = await self._bridge.send_command(
@@ -538,24 +552,9 @@ class RDPPage:
                     self._spy_event_ts = max(self._spy_event_ts, item.get("timestamp", 0))
                     state = item.get("state")
                     signature = (item.get("requestId"), state, item.get("timestamp", 0))
-                    if signature in self._seen_network_events:
+                    if not self._remember_network_event(signature):
                         continue
-                    self._seen_network_events.add(signature)
-                    response_payload = {
-                        "event": "response",
-                        "state": state,
-                        "requestId": item.get("requestId"),
-                        "url": item.get("url", ""),
-                        "method": item.get("method", "GET"),
-                        "headers": item.get("headers"),
-                        "responseHeaders": item.get("responseHeaders"),
-                        "status": item.get("status"),
-                        "requestBody": item.get("body"),
-                        "responseBody": item.get("responseBody"),
-                        "error": item.get("error"),
-                        "timestamp": item.get("timestamp"),
-                        "page": self,
-                    }
+                    response_payload = self._make_network_event_payload("response", item)
                     if state == "failed":
                         self._emit_event(
                             "requestfailed",
@@ -572,6 +571,7 @@ class RDPPage:
                         {
                             **response_payload,
                             "event": "requestfinished",
+                            "state": "finished",
                         },
                     )
 

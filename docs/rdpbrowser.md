@@ -290,6 +290,8 @@ Typical event payloads now include:
 11. `timestamp`
 12. `page`
 
+The practical event bridge is designed so that `request`, `response`, and `requestfinished` can often be correlated through the same `requestId`.
+
 6. `await page.memory_usage()`
 Read the current tab's memory metrics.
 
