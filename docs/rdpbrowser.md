@@ -184,10 +184,13 @@ Return the matched element's `innerHTML`.
 4. `await page.all_text_contents(selector)`
 Return text content for all matched elements.
 
-5. `await page.get_attribute(selector, name)`
+5. `await page.all_inner_texts(selector)`
+Return rendered inner text for all matched elements.
+
+6. `await page.get_attribute(selector, name)`
 Return the matched element's attribute value.
 
-6. `await page.count(selector)`
+7. `await page.count(selector)`
 Return the number of matched elements.
 
 7. `await page.exists(selector)`
@@ -214,8 +217,21 @@ Wait until a selector disappears or becomes hidden.
 14. `await page.wait_until_visible(selector)`
 Wait until a selector becomes visible.
 
-15. `await page.wait_for_selector(selector)`
+15. `await page.first(selector)` / `await page.nth(selector, index)` / `await page.last(selector)`
+Return locator-style handles for the first, nth, or last matching element.
+
+16. `await page.wait_for_selector(selector)`
 Wait until the selector is present/visible under the current implementation's rules.
+
+Locator helpers now also include:
+
+1. `locator.first()`
+2. `locator.last()`
+3. `locator.nth(index)`
+4. `locator.inner_text()`
+5. `locator.exists()`
+6. `locator.is_visible()`
+7. `locator.is_hidden()`
 
 ### Page interaction helpers
 
@@ -384,6 +400,45 @@ Hardening additions in this repo now also include:
 3. multi-origin persistence validation
 
 `sessionStorage` helpers exist at page level, but are not yet treated as portable browser-wide state parity.
+
+## Frames
+
+`RDPBrowser` now includes a minimal frame model focused on same-origin iframes.
+
+Available APIs:
+
+1. `await page.frames()`
+2. `await page.frame(index=..., name=..., url_contains=...)`
+3. `await frame.evaluate(expression)`
+4. `await frame.text_content(selector)`
+5. `await frame.inner_text(selector)`
+6. `await frame.inner_html(selector)`
+7. `await frame.get_attribute(selector, name)`
+8. `await frame.count(selector)`
+9. `await frame.exists(selector)`
+10. `await frame.is_visible(selector)`
+11. `await frame.is_hidden(selector)`
+12. `await frame.wait_for_text(text)`
+13. `await frame.wait_for_selector(selector)`
+14. `frame.locator(selector)`
+15. `await frame.hover(selector)`
+16. `await frame.click(selector)`
+17. `await frame.focus(selector)`
+18. `await frame.press(selector, key)`
+
+Current scope:
+
+1. same-origin frames are supported for DOM/evaluate helpers and basic interaction helpers
+2. cross-origin frames expose metadata only
+3. cross-origin frame DOM/evaluate access raises a clear runtime error
+
+Example:
+
+```python
+frames = await page.frames()
+frame = await page.frame(name="sameOriginFrame")
+print(await frame.text_content("h1"))
+```
 
 ## Official Smoke Suite
 

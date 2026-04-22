@@ -83,22 +83,28 @@ asyncio.run(main())
 4. `await page.inner_text(selector)` - lay noi dung text render ra gan voi nguoi dung nhin thay.
 5. `await page.inner_html(selector)` - lay noi dung HTML ben trong phan tu match.
 6. `await page.all_text_contents(selector)` - lay text content cua tat ca phan tu match.
-7. `await page.get_attribute(selector, name)` - lay gia tri attribute cua phan tu match.
-8. `await page.count(selector)` - dem so phan tu match selector.
-9. `await page.exists(selector)` - tra ve `True` neu ton tai it nhat 1 phan tu match.
-10. `await page.has_selector(selector)` - alias cua `exists(selector)`.
-11. `await page.is_visible(selector)` - kiem tra selector hien co dang visible hay khong.
-12. `await page.is_hidden(selector)` - kiem tra selector dang hidden hoac khong ton tai.
-13. `await page.wait_for_text(text)` - doi den khi `document.body.innerText` chua chuoi can tim.
-14. `await page.wait_for_selector_count(selector, n)` - doi den khi selector co dung `n` phan tu match.
-15. `await page.wait_until_hidden(selector)` - doi den khi selector bien mat hoac bi hidden.
-16. `await page.wait_until_visible(selector)` - doi den khi selector tro nen visible.
-17. `page.locator(selector)` - tao locator wrapper.
-18. `await locator.wait_for()` - doi locator xuat hien/san sang.
-19. `await locator.text_content()` - lay text content qua locator.
-20. `await locator.get_attribute(name)` - lay attribute qua locator.
-21. `await locator.count()` - dem so phan tu qua locator.
-22. `await page.wait_for_selector(selector)` - doi selector theo implementation hien tai.
+7. `await page.all_inner_texts(selector)` - lay innerText cua tat ca phan tu match.
+8. `await page.get_attribute(selector, name)` - lay gia tri attribute cua phan tu match.
+9. `await page.count(selector)` - dem so phan tu match selector.
+10. `await page.exists(selector)` - tra ve `True` neu ton tai it nhat 1 phan tu match.
+11. `await page.has_selector(selector)` - alias cua `exists(selector)`.
+12. `await page.is_visible(selector)` - kiem tra selector hien co dang visible hay khong.
+13. `await page.is_hidden(selector)` - kiem tra selector dang hidden hoac khong ton tai.
+14. `await page.wait_for_text(text)` - doi den khi `document.body.innerText` chua chuoi can tim.
+15. `await page.wait_for_selector_count(selector, n)` - doi den khi selector co dung `n` phan tu match.
+16. `await page.wait_until_hidden(selector)` - doi den khi selector bien mat hoac bi hidden.
+17. `await page.wait_until_visible(selector)` - doi den khi selector tro nen visible.
+18. `page.first(selector)` / `page.nth(selector, index)` / `page.last(selector)` - tao locator helper cho phan tu dau, phan tu thu n, hoac phan tu cuoi.
+19. `page.locator(selector)` - tao locator wrapper.
+20. `await locator.wait_for()` - doi locator xuat hien/san sang.
+21. `await locator.text_content()` - lay text content qua locator.
+22. `await locator.inner_text()` - lay innerText qua locator.
+23. `await locator.get_attribute(name)` - lay attribute qua locator.
+24. `await locator.count()` - dem so phan tu qua locator.
+25. `locator.first()` / `locator.last()` / `locator.nth(index)` - tao locator phong phu hon.
+26. `await locator.exists()` - kiem tra locator co ton tai hay khong.
+27. `await locator.is_visible()` / `await locator.is_hidden()` - kiem tra trang thai visible/hidden cua locator.
+28. `await page.wait_for_selector(selector)` - doi selector theo implementation hien tai.
 
 ## 5. JS va page content
 
@@ -195,6 +201,33 @@ Trong nhieu truong hop, `request`, `response`, va `requestfinished` co the doi c
 7. `await dialog.accept(prompt_text=None)` - chap nhan dialog theo practical shim hien tai.
 8. `await dialog.dismiss()` - tu choi/bo qua dialog theo practical shim hien tai.
 
+## 13. Frames
+
+1. `await page.frames()` - liet ke cac frame/iframe hien co trong page.
+2. `await page.frame(index=..., name=..., url_contains=...)` - lay 1 frame theo index, name, hoac URL.
+3. `await frame.evaluate(expression)` - evaluate trong frame same-origin.
+4. `await frame.text_content(selector)` - lay text content trong frame same-origin.
+5. `await frame.inner_text(selector)` - lay innerText trong frame same-origin.
+6. `await frame.inner_html(selector)` - lay innerHTML trong frame same-origin.
+7. `await frame.get_attribute(selector, name)` - lay attribute trong frame same-origin.
+8. `await frame.count(selector)` - dem so phan tu trong frame same-origin.
+9. `await frame.exists(selector)` - kiem tra selector trong frame same-origin.
+10. `await frame.is_visible(selector)` - kiem tra visible trong frame same-origin.
+11. `await frame.is_hidden(selector)` - kiem tra hidden trong frame same-origin.
+12. `await frame.wait_for_text(text)` - doi text xuat hien trong frame same-origin.
+13. `await frame.wait_for_selector(selector)` - doi selector trong frame same-origin.
+14. `frame.locator(selector)` - tao locator ben trong frame same-origin.
+15. `await frame.hover(selector)` - dua chuot den phan tu trong frame same-origin.
+16. `await frame.click(selector)` - click phan tu trong frame same-origin.
+17. `await frame.focus(selector)` - focus phan tu trong frame same-origin.
+18. `await frame.press(selector, key)` - focus roi bam phim trong frame same-origin.
+
+Gioi han hien tai:
+
+1. same-origin frame duoc ho tro cho DOM/evaluate helpers va interaction helpers co ban.
+2. cross-origin frame chi expose metadata.
+3. neu co gang DOM/evaluate vao cross-origin frame thi se bao loi ro rang.
+
 ## Ghi chu thuc te
 
 1. `RDPBrowser` khong phai la Playwright parity day du.
@@ -204,4 +237,5 @@ Trong nhieu truong hop, `request`, `response`, va `requestfinished` co the doi c
 5. Repo hien da co hardening cho page-scoped storage state va file-based state round-trip.
 6. Upload file hien tai la practical path cho `<input type="file">`, chua phai native file chooser parity.
 7. Dialog hien tai la practical shim, chua phai native parity hoan chinh.
-8. Tai lieu dinh vi va so sanh voi Juggler nam o `docs/rdpbrowser_vs_juggler.md`.
+8. Frame model hien tai tap trung vao same-origin iframe, chua phai full frame parity.
+9. Tai lieu dinh vi va so sanh voi Juggler nam o `docs/rdpbrowser_vs_juggler.md`.

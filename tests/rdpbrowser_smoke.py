@@ -86,6 +86,7 @@ async def test_selectors(reporter):
         await run_test(reporter, "page.inner_text(body)", page.inner_text("body"))
         await run_test(reporter, "page.inner_html(body)", page.inner_html("body"))
         await run_test(reporter, "page.all_text_contents(a)", page.all_text_contents("a"))
+        await run_test(reporter, "page.all_inner_texts(a)", page.all_inner_texts("a"))
         await run_test(reporter, "page.get_attribute(a, href)", page.get_attribute("a", "href"))
         await run_test(reporter, "page.count(a)", page.count("a"))
         await run_test(reporter, "page.exists(h1)", page.exists("h1"))
@@ -97,6 +98,16 @@ async def test_selectors(reporter):
         await run_test(reporter, "page.wait_until_visible(h1)", page.wait_until_visible("h1", timeout=5000))
         await run_test(reporter, "page.wait_for_url(example.com)", page.wait_for_url("example.com", timeout=5000))
         await run_test(reporter, "page.hover(a)", page.hover("a"))
+        await run_test(reporter, "page.first(a).text_content()", page.first("a").text_content())
+        await run_test(reporter, "page.nth(a, 0).text_content()", page.nth("a", 0).text_content())
+        await run_test(reporter, "page.last(a).text_content()", page.last("a").text_content())
+        await run_test(reporter, "locator.first().text_content()", page.locator("a").first().text_content())
+        await run_test(reporter, "locator.last().text_content()", page.locator("a").last().text_content())
+        await run_test(reporter, "locator.nth(0).text_content()", page.locator("a").nth(0).text_content())
+        await run_test(reporter, "locator.inner_text()", page.locator("h1").inner_text())
+        await run_test(reporter, "locator.exists()", page.locator("h1").exists())
+        await run_test(reporter, "locator.is_visible()", page.locator("h1").is_visible())
+        await run_test(reporter, "locator.is_hidden()", page.locator("#missing").is_hidden())
 
 
 async def test_wait_until_hidden(reporter):

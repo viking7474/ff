@@ -51,6 +51,7 @@ Status values:
 | `page.inner_text()` | ready | in-page JS helper | Smoke-covered |
 | `page.inner_html()` | ready | in-page JS helper | Smoke-covered |
 | `page.all_text_contents()` | ready | in-page JS helper | Smoke-covered |
+| `page.all_inner_texts()` | ready | in-page JS helper | Smoke-covered |
 | `page.get_attribute()` | ready | locator wrapper | Smoke-covered |
 | `page.count()` | ready | locator wrapper | Smoke-covered |
 | `page.exists()` | ready | selector count helper | Smoke-covered |
@@ -61,11 +62,16 @@ Status values:
 | `page.wait_for_selector_count()` | ready | selector count polling | Smoke-covered |
 | `page.wait_until_hidden()` | ready | hidden-state wait wrapper | Smoke-covered |
 | `page.wait_until_visible()` | ready | visible-state wait wrapper | Smoke-covered |
+| `page.first()` / `page.nth()` / `page.last()` | ready | richer locator selection helpers | Smoke-covered |
 | `wait_for_selector()` | ready | JS observer/polling | Smoke-validated |
 | `locator.wait_for()` | ready | JS observer/polling | Smoke-validated |
 | `locator.text_content()` | ready | in-page JS | Smoke-validated |
+| `locator.inner_text()` | ready | in-page JS | Smoke-covered |
 | `locator.get_attribute()` | ready | in-page JS | Smoke-validated |
 | `locator.count()` | ready | in-page JS | Smoke-validated |
+| `locator.first()` / `locator.last()` / `locator.nth()` | ready | richer locator selection helpers | Smoke-covered |
+| `locator.exists()` | ready | richer locator helper | Smoke-covered |
+| `locator.is_visible()` / `locator.is_hidden()` | ready | richer locator helper | Smoke-covered |
 
 ## Input
 
@@ -142,6 +148,31 @@ Status values:
 | `dialog.accept()` | partial | practical JS shim | Smoke-covered |
 | `dialog.dismiss()` | partial | practical JS shim | Smoke-covered |
 
+## Frames
+
+| Capability | Status | Backend | Notes |
+|---|---|---|---|
+| `page.frames()` | ready | in-page frame enumeration | Smoke-covered |
+| `page.frame(index/name/url_contains)` | ready | metadata lookup | Smoke-covered |
+| `frame.text_content()` | ready | same-origin frame JS helper | Smoke-covered |
+| `frame.inner_text()` | ready | same-origin frame JS helper | Smoke-covered |
+| `frame.inner_html()` | ready | same-origin frame JS helper | Smoke-covered |
+| `frame.get_attribute()` | ready | same-origin frame JS helper | Smoke-covered |
+| `frame.count()` | ready | same-origin frame JS helper | Smoke-covered |
+| `frame.exists()` | ready | same-origin frame JS helper | Smoke-covered |
+| `frame.is_visible()` | ready | same-origin frame visibility helper | Smoke-covered |
+| `frame.is_hidden()` | ready | same-origin frame visibility helper | Smoke-covered |
+| `frame.wait_for_text()` | ready | same-origin frame text polling | Smoke-covered |
+| `frame.wait_for_selector()` | ready | same-origin frame polling | Smoke-covered |
+| `frame.locator()` | ready | frame-scoped locator helper | Smoke-covered |
+| `frame.hover()` | ready | frame geometry + mouse move | Smoke-covered |
+| `frame.click()` | ready | frame geometry + mouse click | Smoke-covered |
+| `frame.focus()` | ready | same-origin frame JS helper | Smoke-covered |
+| `frame.press()` | ready | frame focus + keyboard press | Smoke-covered |
+| `frame.evaluate()` | partial | same-origin frame eval | Smoke-covered |
+| cross-origin frame metadata | ready | frame enumeration only | Smoke-covered |
+| cross-origin DOM/evaluate access | partial | explicit runtime error | By design |
+
 ## Known Limits
 
 1. This is not full Playwright protocol parity.
@@ -150,7 +181,8 @@ Status values:
 4. Downloads and file chooser flows beyond direct file input population are not part of the current v1 supported surface.
 5. Dialog handling exists as a practical shim, not native parity.
 6. `save_state()` / `load_state()` currently focus on cookies and per-origin `localStorage`, not full browser context parity.
-7. `httpbin.org/html` may return an empty title in simple smoke checks; this is not treated as an automation failure.
+7. Frame support currently focuses on same-origin iframe access; cross-origin frames expose metadata only.
+8. `httpbin.org/html` may return an empty title in simple smoke checks; this is not treated as an automation failure.
 
 ## Recommendation
 

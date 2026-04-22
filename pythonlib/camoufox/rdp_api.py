@@ -293,6 +293,251 @@ class RDPDialog:
             self.prompt_text = None
 
 
+class RDPFrame:
+    def __init__(self, page: "RDPPage", metadata: Dict[str, Any]):
+        self._page = page
+        self.index = metadata.get("index", 0)
+        self.name = metadata.get("name")
+        self.id = metadata.get("id")
+        self.src = metadata.get("src")
+        self.url = metadata.get("url")
+        self.same_origin = bool(metadata.get("same_origin"))
+
+    def _ensure_same_origin(self) -> None:
+        if not self.same_origin:
+            raise RuntimeError("Cross-origin frame access is not supported")
+
+    async def _frame_position(self) -> Dict[str, Any]:
+        self._ensure_same_origin()
+        result = await self._page.evaluate(
+            f"""
+            (() => {{
+              const frame = document.querySelectorAll('iframe, frame')[{self.index}];
+              if (!frame) return JSON.stringify({{ ok: false, error: 'frame-not-found' }});
+              const r = frame.getBoundingClientRect();
+              return JSON.stringify({{ ok: true, x: r.x, y: r.y, w: r.width, h: r.height }});
+            }})()
+            """
+        )
+        if isinstance(result, str):
+            try:
+                payload = json.loads(result)
+            except (json.JSONDecodeError, ValueError):
+                payload = None
+            if isinstance(payload, dict):
+                if not payload.get("ok"):
+                    raise RuntimeError(f"Frame position lookup failed: {payload.get('error', 'unknown')}")
+                return payload
+        raise RuntimeError("Frame position lookup failed")
+
+    async def _target_point(self, selector: str) -> Dict[str, float]:
+        self._ensure_same_origin()
+        selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
+        element_rect = await self._page._frame_eval_body(
+            self.index,
+            f"""
+            const el = doc.querySelector('{selector_escaped}');
+            if (!el) return null;
+            const r = el.getBoundingClientRect();
+            if (r.width === 0 && r.height === 0) return null;
+            return JSON.stringify({{x:r.x,y:r.y,w:r.width,h:r.height}});
+            """,
+        )
+        if not element_rect:
+            raise ValueError(f"Element not found: {selector}")
+        if isinstance(element_rect, str):
+            try:
+                element_rect = json.loads(element_rect)
+            except (json.JSONDecodeError, ValueError):
+                raise RuntimeError("Frame element geometry decode failed")
+        frame_rect = await self._frame_position()
+        return {
+            "x": frame_rect["x"] + element_rect["x"] + element_rect["w"] / 2,
+            "y": frame_rect["y"] + element_rect["y"] + element_rect["h"] / 2,
+            "w": element_rect["w"],
+        }
+
+    async def evaluate(self, expression: str) -> Any:
+        self._ensure_same_origin()
+        return await self._page._frame_evaluate(self.index, expression)
+
+    async def wait_for_text(self, text: str, timeout: int = 5000) -> str:
+        self._ensure_same_origin()
+        deadline = time.time() + (timeout / 1000)
+        text_escaped = text.replace("\\", "\\\\").replace("'", "\\'")
+        while time.time() < deadline:
+            found = await self._page._frame_eval_body(
+                self.index,
+                f"return !!(doc.body && doc.body.innerText.includes('{text_escaped}'));",
+            )
+            if found:
+                return text
+            await asyncio.sleep(0.1)
+        raise TimeoutError(f"Text {text!r} not found within {timeout}ms")
+
+    async def query_selector(self, selector: str) -> Optional[Dict[str, Any]]:
+        self._ensure_same_origin()
+        selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
+        result = await self._page._frame_eval_body(
+            self.index,
+            f"""
+            const el = doc.querySelector('{selector_escaped}');
+            if (!el) return null;
+            const r = el.getBoundingClientRect();
+            return JSON.stringify({{x:r.x,y:r.y,w:r.width,h:r.height}});
+            """,
+        )
+        if isinstance(result, str):
+            try:
+                return json.loads(result)
+            except (json.JSONDecodeError, ValueError):
+                return None
+        return result
+
+    async def text_content(self, selector: str) -> Optional[str]:
+        self._ensure_same_origin()
+        selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
+        return await self._page._frame_eval_body(
+            self.index,
+            f"""
+            const el = doc.querySelector('{selector_escaped}');
+            return el ? el.textContent : null;
+            """,
+        )
+
+    async def inner_text(self, selector: str) -> Optional[str]:
+        self._ensure_same_origin()
+        selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
+        return await self._page._frame_eval_body(
+            self.index,
+            f"""
+            const el = doc.querySelector('{selector_escaped}');
+            return el ? el.innerText : null;
+            """,
+        )
+
+    async def inner_html(self, selector: str) -> Optional[str]:
+        self._ensure_same_origin()
+        selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
+        return await self._page._frame_eval_body(
+            self.index,
+            f"""
+            const el = doc.querySelector('{selector_escaped}');
+            return el ? el.innerHTML : null;
+            """,
+        )
+
+    async def get_attribute(self, selector: str, name: str) -> Optional[str]:
+        self._ensure_same_origin()
+        selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
+        name_escaped = name.replace("\\", "\\\\").replace("'", "\\'")
+        return await self._page._frame_eval_body(
+            self.index,
+            f"""
+            const el = doc.querySelector('{selector_escaped}');
+            return el ? el.getAttribute('{name_escaped}') : null;
+            """,
+        )
+
+    async def count(self, selector: str) -> int:
+        self._ensure_same_origin()
+        selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
+        result = await self._page._frame_eval_body(
+            self.index,
+            f"return doc.querySelectorAll('{selector_escaped}').length;",
+        )
+        try:
+            return int(result)
+        except Exception:
+            return 0
+
+    async def exists(self, selector: str) -> bool:
+        self._ensure_same_origin()
+        return (await self.count(selector)) > 0
+
+    async def is_visible(self, selector: str) -> bool:
+        self._ensure_same_origin()
+        selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
+        result = await self._page._frame_eval_body(
+            self.index,
+            f"""
+            const el = doc.querySelector('{selector_escaped}');
+            if (!el) return false;
+            const style = win.getComputedStyle(el);
+            if (!style) return false;
+            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+            const r = el.getBoundingClientRect();
+            return !!(r.width > 0 && r.height > 0);
+            """,
+        )
+        return bool(result)
+
+    async def is_hidden(self, selector: str) -> bool:
+        self._ensure_same_origin()
+        return not await self.is_visible(selector)
+
+    async def wait_for_selector(
+        self, selector: str, timeout: int = 5000, state: str = "visible"
+    ) -> Optional[Dict[str, Any]]:
+        self._ensure_same_origin()
+        selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
+        deadline = time.time() + (timeout / 1000)
+        while time.time() < deadline:
+            result = await self._page._frame_eval_body(
+                self.index,
+                f"""
+                const el = doc.querySelector('{selector_escaped}');
+                if ({json.dumps(state)} === 'hidden') {{
+                  return !el ? 'ok' : null;
+                }}
+                if (!el) return null;
+                const r = el.getBoundingClientRect();
+                if ({json.dumps(state)} === 'visible' && r.width === 0 && r.height === 0) return null;
+                return JSON.stringify({{x:r.x,y:r.y,w:r.width,h:r.height}});
+                """,
+            )
+            if result == "ok":
+                return {}
+            if isinstance(result, str) and result:
+                try:
+                    return json.loads(result)
+                except (json.JSONDecodeError, ValueError):
+                    return {"raw": result}
+            await asyncio.sleep(0.1)
+        return None
+
+    async def hover(self, selector: str) -> None:
+        point = await self._target_point(selector)
+        await self._page.mouse.move_smooth(point["x"], point["y"], target_width=point.get("w", 50))
+
+    async def click(self, selector: str) -> None:
+        point = await self._target_point(selector)
+        await self._page.mouse.click_smooth(point["x"], point["y"], target_width=point.get("w", 50))
+
+    async def focus(self, selector: str) -> None:
+        self._ensure_same_origin()
+        selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
+        focused = await self._page._frame_eval_body(
+            self.index,
+            f"""
+            const el = doc.querySelector('{selector_escaped}');
+            if (!el) return false;
+            if (typeof el.scrollIntoView === 'function') el.scrollIntoView({{ block: 'center', inline: 'center' }});
+            if (typeof el.focus === 'function') el.focus();
+            return doc.activeElement === el;
+            """,
+        )
+        if not focused:
+            raise ValueError(f"Element not found or focus failed: {selector}")
+
+    async def press(self, selector: str, key: str) -> None:
+        await self.focus(selector)
+        await self._page.keyboard.press(key)
+
+    def locator(self, selector: str) -> "_FrameLocator":
+        return _FrameLocator(self, selector)
+
+
 class RDPPage:
     """Page handle with Playwright-like API over Firefox RDP."""
 
@@ -922,6 +1167,19 @@ class RDPPage:
                 pass
         return []
 
+    async def all_inner_texts(self, selector: str) -> List[str]:
+        self._ensure_open()
+        selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
+        result = await self.evaluate(
+            f"(function(){{ return JSON.stringify(Array.from(document.querySelectorAll('{selector_escaped}')).map(el => el.innerText || '')); }})()"
+        )
+        if isinstance(result, str):
+            try:
+                return json.loads(result)
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return []
+
     async def get_attribute(self, selector: str, name: str) -> Optional[str]:
         self._ensure_open()
         return await self.locator(selector).get_attribute(name)
@@ -1091,6 +1349,149 @@ class RDPPage:
         self._ensure_open()
         existing_pages = self._browser.list_pages()
         return await self._browser.wait_for_new_page(timeout=timeout, existing_pages=existing_pages)
+
+    async def _enumerate_frames(self) -> List[Dict[str, Any]]:
+        self._ensure_open()
+        result = await self.evaluate(
+            """
+            (() => {
+              const frames = Array.from(document.querySelectorAll('iframe, frame')).map((frame, index) => {
+                try {
+                  return {
+                    index,
+                    name: frame.name || null,
+                    id: frame.id || null,
+                    src: frame.getAttribute('src') || null,
+                    url: frame.contentWindow.location.href,
+                    same_origin: true,
+                  };
+                } catch (e) {
+                  return {
+                    index,
+                    name: frame.name || null,
+                    id: frame.id || null,
+                    src: frame.getAttribute('src') || null,
+                    url: null,
+                    same_origin: false,
+                  };
+                }
+              });
+              return JSON.stringify(frames);
+            })()
+            """
+        )
+        if isinstance(result, str):
+            try:
+                return json.loads(result)
+            except (json.JSONDecodeError, ValueError):
+                return []
+        return []
+
+    async def _frame_eval_body(self, index: int, body: str) -> Any:
+        self._ensure_open()
+        result = await self.evaluate(
+            f"""
+            (() => {{
+              const frame = document.querySelectorAll('iframe, frame')[{index}];
+              if (!frame) return JSON.stringify({{ ok: false, error: 'frame-not-found' }});
+              try {{
+                const win = frame.contentWindow;
+                const doc = win.document;
+                const result = (() => {{ {body} }})();
+                return JSON.stringify({{ ok: true, value: result }});
+              }} catch (e) {{
+                return JSON.stringify({{ ok: false, error: 'cross-origin-frame' }});
+              }}
+            }})()
+            """
+        )
+        if isinstance(result, str):
+            try:
+                payload = json.loads(result)
+            except (json.JSONDecodeError, ValueError):
+                payload = None
+            if isinstance(payload, dict):
+                if not payload.get("ok"):
+                    error = payload.get("error", "unknown")
+                    if error == "cross-origin-frame":
+                        raise RuntimeError("Cross-origin frame access is not supported")
+                    raise RuntimeError(f"Frame evaluation failed: {error}")
+                return payload.get("value")
+        return result
+
+    async def _frame_evaluate(self, index: int, expression: str) -> Any:
+        self._ensure_open()
+        expr = expression.strip()
+        auto_called = False
+        if (
+            expr.startswith("() =>")
+            or expr.startswith("async () =>")
+            or expr.startswith("function")
+        ) and not expr.endswith("()"):
+            expr = f"({expr})()"
+            auto_called = True
+        expr_json = json.dumps(expr)
+        result = await self.evaluate(
+            f"""
+            (() => {{
+              const frame = document.querySelectorAll('iframe, frame')[{index}];
+              if (!frame) return JSON.stringify({{ ok: false, error: 'frame-not-found' }});
+              try {{
+                const win = frame.contentWindow;
+                let value = win.eval({expr_json});
+                if ({str(auto_called).lower()} && typeof value === 'object' && value !== null) {{
+                  return JSON.stringify({{ ok: true, object: true, value: JSON.stringify(value) }});
+                }}
+                if (typeof value === 'undefined') {{
+                  return JSON.stringify({{ ok: true, value: null, undefined: true }});
+                }}
+                return JSON.stringify({{ ok: true, object: false, value }});
+              }} catch (e) {{
+                return JSON.stringify({{ ok: false, error: 'cross-origin-frame' }});
+              }}
+            }})()
+            """
+        )
+        if isinstance(result, str):
+            try:
+                payload = json.loads(result)
+            except (json.JSONDecodeError, ValueError):
+                payload = None
+            if isinstance(payload, dict):
+                if not payload.get("ok"):
+                    error = payload.get("error", "unknown")
+                    if error == "cross-origin-frame":
+                        raise RuntimeError("Cross-origin frame access is not supported")
+                    raise RuntimeError(f"Frame evaluation failed: {error}")
+                if payload.get("object") and isinstance(payload.get("value"), str):
+                    try:
+                        return json.loads(payload["value"])
+                    except (json.JSONDecodeError, ValueError):
+                        return payload["value"]
+                return payload.get("value")
+        return result
+
+    async def frames(self) -> List[RDPFrame]:
+        self._ensure_open()
+        metadata = await self._enumerate_frames()
+        return [RDPFrame(self, item) for item in metadata]
+
+    async def frame(
+        self,
+        index: Optional[int] = None,
+        name: Optional[str] = None,
+        url_contains: Optional[str] = None,
+    ) -> Optional[RDPFrame]:
+        self._ensure_open()
+        for frame in await self.frames():
+            if index is not None and frame.index != index:
+                continue
+            if name is not None and frame.name != name:
+                continue
+            if url_contains is not None and (not frame.url or url_contains not in frame.url):
+                continue
+            return frame
+        return None
 
     async def is_active(self) -> bool:
         self._ensure_open()
@@ -1959,6 +2360,15 @@ class RDPPage:
         """Create a Playwright-compatible locator."""
         return _Locator(self, selector)
 
+    def first(self, selector: str) -> "_Locator":
+        return _Locator(self, selector, index=0)
+
+    def nth(self, selector: str, index: int) -> "_Locator":
+        return _Locator(self, selector, index=index)
+
+    def last(self, selector: str) -> "_Locator":
+        return _Locator(self, selector, index=-1)
+
     async def query_selector_all(self, selector: str) -> List[Dict]:
         """Return list of element rects matching selector."""
         sel_escaped = selector.replace("'", "\\'")
@@ -1979,9 +2389,10 @@ class RDPPage:
 class _Locator:
     """Playwright-compatible locator for RDPPage."""
 
-    def __init__(self, page: "RDPPage", selector: str):
+    def __init__(self, page: "RDPPage", selector: str, index: Optional[int] = None):
         self._page = page
         self._selector = selector
+        self._index = index
 
     def _to_css_and_js(self) -> str:
         """Convert Playwright-style selector to JS find expression."""
@@ -1991,23 +2402,52 @@ class _Locator:
             text = sel[5:]
             if text.startswith("/") and "/" in text[1:]:
                 # Regex: text=/pattern/flags
+                index_expr = self._index if self._index is not None else 0
+                if self._index == -1:
+                    return (
+                        f"(function(){{ var re = new RegExp({text}); var out=[];"
+                        f"var tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);"
+                        f"while(tw.nextNode()) {{ if(re.test(tw.currentNode.textContent)) out.push(tw.currentNode.parentElement); }}"
+                        f"return out.length ? out[out.length-1] : null; }})()"
+                    )
                 return (
-                    f"(function(){{ var re = new RegExp({text}); "
+                    f"(function(){{ var re = new RegExp({text}); var out=[];"
                     f"var tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);"
-                    f"while(tw.nextNode()) {{ if(re.test(tw.currentNode.textContent)) "
-                    f"return tw.currentNode.parentElement; }} return null; }})()"
+                    f"while(tw.nextNode()) {{ if(re.test(tw.currentNode.textContent)) out.push(tw.currentNode.parentElement); }}"
+                    f"return out.length>{index_expr} ? out[{index_expr}] : null; }})()"
                 )
             else:
                 text_escaped = text.replace("\\", "\\\\").replace("'", "\\'")
+                index_expr = self._index if self._index is not None else 0
+                if self._index == -1:
+                    return (
+                        f"(function(){{ var out=[]; var tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);"
+                        f"while(tw.nextNode()) {{ if(tw.currentNode.textContent.includes('{text_escaped}')) out.push(tw.currentNode.parentElement); }}"
+                        f"return out.length ? out[out.length-1] : null; }})()"
+                    )
                 return (
-                    f"(function(){{ var tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);"
-                    f"while(tw.nextNode()) {{ if(tw.currentNode.textContent.includes('{text_escaped}')) "
-                    f"return tw.currentNode.parentElement; }} return null; }})()"
+                    f"(function(){{ var out=[]; var tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);"
+                    f"while(tw.nextNode()) {{ if(tw.currentNode.textContent.includes('{text_escaped}')) out.push(tw.currentNode.parentElement); }}"
+                    f"return out.length>{index_expr} ? out[{index_expr}] : null; }})()"
                 )
         # Handle css= prefix
         if sel.startswith("css:") or sel.startswith("css="):
             sel = sel[4:]
-        return f"document.querySelector('{sel.replace(chr(39), chr(92) + chr(39))}')"
+        sel_escaped = sel.replace(chr(39), chr(92) + chr(39))
+        if self._index is None:
+            return f"document.querySelector('{sel_escaped}')"
+        if self._index == -1:
+            return f"(function(){{ var els=document.querySelectorAll('{sel_escaped}'); return els.length ? els[els.length-1] : null; }})()"
+        return f"(function(){{ var els=document.querySelectorAll('{sel_escaped}'); return els.length>{self._index} ? els[{self._index}] : null; }})()"
+
+    def first(self) -> "_Locator":
+        return _Locator(self._page, self._selector, index=0)
+
+    def nth(self, index: int) -> "_Locator":
+        return _Locator(self._page, self._selector, index=index)
+
+    def last(self) -> "_Locator":
+        return _Locator(self._page, self._selector, index=-1)
 
     async def wait_for(self, state: str = "visible", timeout: int = 5000) -> None:
         find_js = self._to_css_and_js()
@@ -2105,6 +2545,13 @@ class _Locator:
         )
         return result
 
+    async def inner_text(self) -> Optional[str]:
+        find_js = self._to_css_and_js()
+        result = await self._page.evaluate(
+            f"(function(){{ var el = {find_js}; return el ? el.innerText : null; }})()"
+        )
+        return result
+
     async def get_attribute(self, name: str) -> Optional[str]:
         find_js = self._to_css_and_js()
         name_escaped = name.replace("'", "\\'")
@@ -2117,8 +2564,16 @@ class _Locator:
         sel = self._selector
         if sel.startswith("text="):
             # Can't easily count text matches, return 0 or 1
-            find_js = self._to_css_and_js()
-            result = await self._page.evaluate(f"({find_js}) !== null ? 1 : 0")
+            text = sel[5:]
+            if text.startswith("/") and "/" in text[1:]:
+                result = await self._page.evaluate(
+                    f"(function(){{ var re = new RegExp({text}); var n=0; var tw=document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); while(tw.nextNode()){{ if(re.test(tw.currentNode.textContent)) n++; }} return n; }})()"
+                )
+                return result or 0
+            text_escaped = text.replace("\\", "\\\\").replace("'", "\\'")
+            result = await self._page.evaluate(
+                f"(function(){{ var n=0; var tw=document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); while(tw.nextNode()){{ if(tw.currentNode.textContent.includes('{text_escaped}')) n++; }} return n; }})()"
+            )
             return result or 0
         if sel.startswith("css:") or sel.startswith("css="):
             sel = sel[4:]
@@ -2127,6 +2582,125 @@ class _Locator:
             f"document.querySelectorAll('{sel_escaped}').length"
         )
         return result or 0
+
+    async def exists(self) -> bool:
+        return (await self.count()) > 0
+
+    async def is_visible(self) -> bool:
+        find_js = self._to_css_and_js()
+        result = await self._page.evaluate(
+            f"""(function(){{
+                var el = {find_js};
+                if (!el) return false;
+                var style = window.getComputedStyle(el);
+                if (!style) return false;
+                if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+                var r = el.getBoundingClientRect();
+                return !!(r.width > 0 && r.height > 0);
+            }})()"""
+        )
+        return bool(result)
+
+    async def is_hidden(self) -> bool:
+        return not await self.is_visible()
+
+
+class _FrameLocator:
+    """Playwright-like locator for RDPFrame (same-origin only)."""
+
+    def __init__(self, frame: RDPFrame, selector: str, index: Optional[int] = None):
+        self._frame = frame
+        self._selector = selector
+        self._index = index
+
+    def _selector_expr(self) -> str:
+        sel = self._selector.replace("\\", "\\\\").replace("'", "\\'")
+        if self._index is None:
+            return f"doc.querySelector('{sel}')"
+        if self._index == -1:
+            return f"(function(){{ const els=doc.querySelectorAll('{sel}'); return els.length ? els[els.length-1] : null; }})()"
+        return f"(function(){{ const els=doc.querySelectorAll('{sel}'); return els.length>{self._index} ? els[{self._index}] : null; }})()"
+
+    def first(self) -> "_FrameLocator":
+        return _FrameLocator(self._frame, self._selector, index=0)
+
+    def nth(self, index: int) -> "_FrameLocator":
+        return _FrameLocator(self._frame, self._selector, index=index)
+
+    def last(self) -> "_FrameLocator":
+        return _FrameLocator(self._frame, self._selector, index=-1)
+
+    async def wait_for(self, state: str = "visible", timeout: int = 5000) -> None:
+        result = await self._frame.wait_for_selector(self._selector, timeout=timeout, state=state)
+        if result is None:
+            raise TimeoutError(f"Frame locator '{self._selector}' not {state} within {timeout}ms")
+
+    async def text_content(self) -> Optional[str]:
+        expr = self._selector_expr()
+        return await self._frame._page._frame_eval_body(
+            self._frame.index,
+            f"const el = {expr}; return el ? el.textContent : null;",
+        )
+
+    async def inner_text(self) -> Optional[str]:
+        expr = self._selector_expr()
+        return await self._frame._page._frame_eval_body(
+            self._frame.index,
+            f"const el = {expr}; return el ? el.innerText : null;",
+        )
+
+    async def get_attribute(self, name: str) -> Optional[str]:
+        name_escaped = name.replace("\\", "\\\\").replace("'", "\\'")
+        expr = self._selector_expr()
+        return await self._frame._page._frame_eval_body(
+            self._frame.index,
+            f"const el = {expr}; return el ? el.getAttribute('{name_escaped}') : null;",
+        )
+
+    async def count(self) -> int:
+        sel = self._selector.replace("\\", "\\\\").replace("'", "\\'")
+        result = await self._frame._page._frame_eval_body(
+            self._frame.index,
+            f"return doc.querySelectorAll('{sel}').length;",
+        )
+        try:
+            return int(result)
+        except Exception:
+            return 0
+
+    async def exists(self) -> bool:
+        return (await self.count()) > 0
+
+    async def is_visible(self) -> bool:
+        expr = self._selector_expr()
+        result = await self._frame._page._frame_eval_body(
+            self._frame.index,
+            f"""
+            const el = {expr};
+            if (!el) return false;
+            const style = win.getComputedStyle(el);
+            if (!style) return false;
+            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+            const r = el.getBoundingClientRect();
+            return !!(r.width > 0 && r.height > 0);
+            """,
+        )
+        return bool(result)
+
+    async def is_hidden(self) -> bool:
+        return not await self.is_visible()
+
+    async def click(self) -> None:
+        await self._frame.click(self._selector)
+
+    async def hover(self) -> None:
+        await self._frame.hover(self._selector)
+
+    async def focus(self) -> None:
+        await self._frame.focus(self._selector)
+
+    async def press(self, key: str) -> None:
+        await self._frame.press(self._selector, key)
 
 
 from camoufox.humanize import (
