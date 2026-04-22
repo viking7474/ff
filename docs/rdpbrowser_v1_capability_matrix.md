@@ -103,6 +103,12 @@ Status values:
 | Capability | Status | Backend | Notes |
 |---|---|---|---|
 | clear cookies | ready | extension cookies API | Smoke-validated |
+| `page.get_local_storage()` | ready | in-page JS helper | Smoke-covered |
+| `page.set_local_storage()` | ready | in-page JS helper | Smoke-covered |
+| `page.get_session_storage()` | ready | in-page JS helper | Smoke-covered |
+| `page.set_session_storage()` | ready | in-page JS helper | Smoke-covered |
+| `browser.save_state()` | partial | cookies + per-origin localStorage | Smoke-covered |
+| `browser.load_state()` | partial | cookies + per-origin localStorage | Smoke-covered |
 | memory usage | ready | `MemoryActor` | Smoke-validated |
 | force GC | ready | `MemoryActor` | Smoke-validated |
 
@@ -135,7 +141,8 @@ Status values:
 3. File upload support exists through `set_input_files()`, but native chooser parity is not part of the current v1 supported surface.
 4. Downloads and file chooser flows beyond direct file input population are not part of the current v1 supported surface.
 5. Dialog handling exists as a practical shim, not native parity.
-6. `httpbin.org/html` may return an empty title in simple smoke checks; this is not treated as an automation failure.
+6. `save_state()` / `load_state()` currently focus on cookies and per-origin `localStorage`, not full browser context parity.
+7. `httpbin.org/html` may return an empty title in simple smoke checks; this is not treated as an automation failure.
 
 ## Recommendation
 

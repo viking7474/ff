@@ -481,6 +481,51 @@ function connect() {
           break;
         }
 
+        case "getCookies": {
+          const domain = params.domain || null;
+          const url = params.url || null;
+          let cookies;
+          if (domain) {
+            cookies = await browser.cookies.getAll({ domain });
+          } else if (url) {
+            cookies = await browser.cookies.getAll({ url });
+          } else {
+            cookies = await browser.cookies.getAll({});
+          }
+          result = { cookies };
+          break;
+        }
+
+        case "setCookies": {
+          const cookies = params.cookies || [];
+          let set = 0;
+          for (const c of cookies) {
+            try {
+              let cookieUrl = c.url || null;
+              if (!cookieUrl && c.domain) {
+                const proto = c.secure ? "https://" : "http://";
+                cookieUrl = proto + String(c.domain).replace(/^\./, "") + (c.path || "/");
+              }
+              if (!cookieUrl) continue;
+              const payload = {
+                url: cookieUrl,
+                name: c.name,
+                value: c.value,
+                domain: c.domain,
+                path: c.path,
+                secure: c.secure,
+                httpOnly: c.httpOnly,
+                sameSite: c.sameSite,
+                expirationDate: c.expirationDate,
+              };
+              await browser.cookies.set(payload);
+              set++;
+            } catch (_) {}
+          }
+          result = { ok: true, set };
+          break;
+        }
+
         case "minimizeWindow": {
           // Minimize current window. Triggers real window.blur,
           // document.visibilitychange, visibilityState=hidden, and rAF throttle.

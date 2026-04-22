@@ -275,6 +275,26 @@ Read the current tab's memory metrics.
 7. `await page.force_gc()`
 Force GC and cycle collection for the current tab.
 
+## Storage and State
+
+1. `await page.get_local_storage()`
+Read the current page's `localStorage` entries as a dictionary.
+
+2. `await page.set_local_storage(data)`
+Set one or more `localStorage` entries on the current page.
+
+3. `await page.get_session_storage()`
+Read the current page's `sessionStorage` entries as a dictionary.
+
+4. `await page.set_session_storage(data)`
+Set one or more `sessionStorage` entries on the current page.
+
+5. `await browser.save_state()`
+Return a practical reusable state object containing cookies and `localStorage` grouped by origin.
+
+6. `await browser.load_state(state)`
+Restore cookies and per-origin `localStorage` from a saved state object.
+
 ## Multi-Instance Usage
 
 Multiple Winfox profiles can run at once as long as each instance gets:
@@ -314,6 +334,15 @@ Current limitations:
 
 1. this is not native file chooser parity
 2. `wait_for_file_chooser()` is not part of the current supported surface
+
+## State Notes
+
+`save_state()` and `load_state()` currently focus on:
+
+1. cookies
+2. per-origin `localStorage`
+
+`sessionStorage` helpers exist at page level, but are not yet treated as portable browser-wide state parity.
 
 ## Official Smoke Suite
 

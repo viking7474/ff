@@ -305,6 +305,58 @@ async def test_reload_and_cookies(reporter):
         await run_test(reporter, "clear_cookies()", page.clear_cookies())
 
 
+async def test_storage_state(reporter):
+    async with await make_browser(25, headless=False) as browser:
+        page = await browser.new_page()
+        await page.goto("https://example.com")
+        await page.wait_for_load_state("load")
+
+        await run_test(
+            reporter,
+            "page.set_local_storage()",
+            page.set_local_storage({"rdp_local_key": "rdp_local_value"}),
+        )
+        await run_test(reporter, "page.get_local_storage()", page.get_local_storage())
+
+        await run_test(
+            reporter,
+            "page.set_session_storage()",
+            page.set_session_storage({"rdp_session_key": "rdp_session_value"}),
+        )
+        await run_test(reporter, "page.get_session_storage()", page.get_session_storage())
+
+        await run_test(
+            reporter,
+            "set document.cookie for state",
+            page.evaluate("document.cookie = 'rdp_state_cookie=1; path=/'; true"),
+        )
+
+        state = await run_test(reporter, "browser.save_state()", browser.save_state())
+        if not isinstance(state, dict):
+            reporter.add("browser.save_state() payload", "FAIL", "state is not a dict")
+            return
+
+    async with await make_browser(26, headless=False) as browser2:
+        await run_test(reporter, "browser.load_state()", browser2.load_state(state))
+        page = await browser2.new_page()
+        await page.goto("https://example.com")
+        await page.wait_for_load_state("load")
+        local_storage = await run_test(reporter, "loaded page.get_local_storage()", page.get_local_storage())
+        cookie_text = await run_test(reporter, "loaded document.cookie", page.evaluate("document.cookie"))
+        if isinstance(local_storage, dict):
+            reporter.add(
+                "loaded localStorage contains key",
+                "PASS" if local_storage.get("rdp_local_key") == "rdp_local_value" else "FAIL",
+                str(local_storage),
+            )
+        if isinstance(cookie_text, str):
+            reporter.add(
+                "loaded cookie contains key",
+                "PASS" if "rdp_state_cookie=1" in cookie_text else "FAIL",
+                cookie_text,
+            )
+
+
 async def test_network(reporter):
     print("\n=== network ===")
     async with await make_browser(4, headless=False) as browser:
@@ -575,6 +627,7 @@ async def main():
     await test_click_and_locator_click(reporter)
     await test_popup_new_page(reporter)
     await test_reload_and_cookies(reporter)
+    await test_storage_state(reporter)
     await test_network(reporter)
     await test_memory_and_gc(reporter)
     await test_window_helpers(reporter)

@@ -951,6 +951,56 @@ class RDPPage:
         self._ensure_open()
         await self.wait_for_selector(selector, state="visible", timeout=timeout)
 
+    async def get_local_storage(self) -> Dict[str, str]:
+        self._ensure_open()
+        result = await self.evaluate(
+            "JSON.stringify(Object.fromEntries(Object.keys(localStorage).map(k => [k, localStorage.getItem(k)])))"
+        )
+        if isinstance(result, str):
+            try:
+                return json.loads(result)
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return {}
+
+    async def set_local_storage(self, data: Dict[str, Any]) -> None:
+        self._ensure_open()
+        payload = json.dumps({str(k): "" if v is None else str(v) for k, v in data.items()})
+        await self.evaluate(
+            f"""
+            (() => {{
+              const data = {payload};
+              for (const [k, v] of Object.entries(data)) localStorage.setItem(k, v);
+              return true;
+            }})()
+            """
+        )
+
+    async def get_session_storage(self) -> Dict[str, str]:
+        self._ensure_open()
+        result = await self.evaluate(
+            "JSON.stringify(Object.fromEntries(Object.keys(sessionStorage).map(k => [k, sessionStorage.getItem(k)])))"
+        )
+        if isinstance(result, str):
+            try:
+                return json.loads(result)
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return {}
+
+    async def set_session_storage(self, data: Dict[str, Any]) -> None:
+        self._ensure_open()
+        payload = json.dumps({str(k): "" if v is None else str(v) for k, v in data.items()})
+        await self.evaluate(
+            f"""
+            (() => {{
+              const data = {payload};
+              for (const [k, v] of Object.entries(data)) sessionStorage.setItem(k, v);
+              return true;
+            }})()
+            """
+        )
+
     async def wait_for_url(self, pattern: str, timeout: int = 30000) -> str:
         self._ensure_open()
         deadline = time.time() + (timeout / 1000)
@@ -2342,6 +2392,65 @@ class RDPBrowser:
             return None
         page = self._pages_by_tab_id.get(tab_id)
         return page if page and not page.is_closed() else None
+
+    async def save_state(self) -> Dict[str, Any]:
+        state: Dict[str, Any] = {"cookies": [], "origins": []}
+        if self._bridge and self._bridge.is_connected:
+            try:
+                result = await self._bridge.send_command("getCookies", {}, timeout=10)
+                state["cookies"] = result.get("cookies", []) if result else []
+            except Exception:
+                pass
+
+        seen_origins = set()
+        for page in self.list_pages():
+            try:
+                url = await page.url_fresh()
+            except Exception:
+                continue
+            parsed = urlparse(url)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                continue
+            origin = f"{parsed.scheme}://{parsed.netloc}"
+            if origin in seen_origins:
+                continue
+            seen_origins.add(origin)
+            try:
+                local_storage = await page.get_local_storage()
+            except Exception:
+                local_storage = {}
+            state["origins"].append({"origin": origin, "localStorage": local_storage})
+        return state
+
+    async def load_state(self, state: Dict[str, Any]) -> Dict[str, int]:
+        cookies = state.get("cookies", []) if isinstance(state, dict) else []
+        origins = state.get("origins", []) if isinstance(state, dict) else []
+        cookies_set = 0
+        origins_loaded = 0
+
+        if cookies and self._bridge and self._bridge.is_connected:
+            try:
+                result = await self._bridge.send_command("setCookies", {"cookies": cookies}, timeout=15)
+                cookies_set = int(result.get("set", 0)) if result else 0
+            except Exception:
+                cookies_set = 0
+
+        for origin_entry in origins:
+            origin = origin_entry.get("origin")
+            local_storage = origin_entry.get("localStorage", {})
+            if not origin:
+                continue
+            page = await self.new_page()
+            try:
+                await page.goto(origin)
+                await page.wait_for_load_state("load")
+                if local_storage:
+                    await page.set_local_storage(local_storage)
+                origins_loaded += 1
+            finally:
+                await page.close()
+
+        return {"cookies_set": cookies_set, "origins_loaded": origins_loaded}
 
     async def wait_for_new_page(
         self,

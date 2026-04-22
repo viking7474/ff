@@ -142,7 +142,16 @@ asyncio.run(main())
 1. `await page.memory_usage()` - lay memory metrics cua tab hien tai.
 2. `await page.force_gc()` - ep GC va cycle collection.
 
-## 10. Events
+## 10. Storage va state
+
+1. `await page.get_local_storage()` - lay toan bo `localStorage` cua page hien tai duoi dang dictionary.
+2. `await page.set_local_storage(data)` - ghi nhieu gia tri vao `localStorage` cua page hien tai.
+3. `await page.get_session_storage()` - lay toan bo `sessionStorage` cua page hien tai.
+4. `await page.set_session_storage(data)` - ghi nhieu gia tri vao `sessionStorage` cua page hien tai.
+5. `await browser.save_state()` - luu state thuc dung gom cookies va `localStorage` theo origin.
+6. `await browser.load_state(state)` - nap lai state da luu vao browser.
+
+## 11. Events
 
 1. `page.on("load", callback)` - dang ky callback khi trang load xong.
 2. `page.on("domcontentloaded", callback)` - callback cho DOM content loaded.
@@ -153,7 +162,7 @@ asyncio.run(main())
 7. `page.on("requestfailed", callback)` - nhan event khi request that bai theo du lieu spy.
 8. `page.remove_listener(event, callback)` - go callback da dang ky.
 
-## 11. Dialogs
+## 12. Dialogs
 
 1. `await page.expect_dialog(timeout=5000)` - doi dialog thuc dung duoc shim tu `alert/confirm/prompt`.
 2. `dialog.type` - loai dialog (`alert`, `confirm`, `prompt`).
@@ -166,6 +175,7 @@ asyncio.run(main())
 1. `RDPBrowser` khong phai la Playwright parity day du.
 2. Multi-instance va multi-tab da co smoke/stress test trong repo.
 3. Neu gap loi, xem them `docs/rdpbrowser_troubleshooting.md`.
-4. Upload file hien tai la practical path cho `<input type="file">`, chua phai native file chooser parity.
-5. Dialog hien tai la practical shim, chua phai native parity hoan chinh.
-6. Tai lieu dinh vi va so sanh voi Juggler nam o `docs/rdpbrowser_vs_juggler.md`.
+4. `save_state()` / `load_state()` hien tai tap trung vao cookies va `localStorage`, chua phai browser context parity day du.
+5. Upload file hien tai la practical path cho `<input type="file">`, chua phai native file chooser parity.
+6. Dialog hien tai la practical shim, chua phai native parity hoan chinh.
+7. Tai lieu dinh vi va so sanh voi Juggler nam o `docs/rdpbrowser_vs_juggler.md`.

@@ -121,6 +121,20 @@ Recommendations:
 2. verify the selector points to the real file input element
 3. verify file existence before calling the helper
 
+## Storage / State Problems
+
+### `save_state()` or `load_state()` does not restore everything
+
+Cause:
+
+1. the current state model is intentionally practical, not full browser context parity
+2. the current implementation focuses on cookies and per-origin `localStorage`
+
+Recommendations:
+
+1. use `page.get_session_storage()` / `page.set_session_storage()` only as page-level helpers for now
+2. treat `save_state()` / `load_state()` as a practical session reuse tool, not a full Playwright-style storage-state equivalent
+
 ## Network Capture Confusion
 
 ### `wait_for_response()` succeeds but `get_captured_responses()` is empty
