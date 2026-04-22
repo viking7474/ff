@@ -53,7 +53,7 @@ asyncio.run(main())
 5. `await browser.pages_by_url(pattern)` - tim tat ca page co URL chua `pattern`.
 6. `await browser.close_other_pages(page)` - dong tat ca page tru page duoc giu lai.
 7. `await browser.close_all_pages()` - dong tat ca page dang duoc theo doi va xoa registry.
-8. `await browser.wait_for_new_page(timeout=5000)` - doi mot page/tab moi xuat hien trong registry sau khi click hoac window.open.
+8. `await browser.wait_for_new_page(timeout=5000)` - doi mot page/tab moi xuat hien, ket hop registry va tab actor de giam race popup.
 9. `await browser.close()` - dong browser.
 
 ## 2. Page lifecycle va tab management
@@ -73,6 +73,7 @@ asyncio.run(main())
 6. `page.url_cached` - lay URL cache da duoc cap nhat trong navigation.
 7. `await page.url_fresh()` - lay URL moi nhat bang cach hoi truc tiep page.
 8. `await page.title()` - lay `document.title`.
+9. `await page.expect_popup(timeout=5000)` - doi popup/tab moi duoc mo boi hanh dong tu page nay.
 
 ## 4. DOM / selectors / locator
 
@@ -148,8 +149,12 @@ asyncio.run(main())
 2. `await page.set_local_storage(data)` - ghi nhieu gia tri vao `localStorage` cua page hien tai.
 3. `await page.get_session_storage()` - lay toan bo `sessionStorage` cua page hien tai.
 4. `await page.set_session_storage(data)` - ghi nhieu gia tri vao `sessionStorage` cua page hien tai.
-5. `await browser.save_state()` - luu state thuc dung gom cookies va `localStorage` theo origin.
-6. `await browser.load_state(state)` - nap lai state da luu vao browser.
+5. `await page.save_storage_state()` - luu `localStorage` va `sessionStorage` cua page hien tai thanh mot state object cap page.
+6. `await page.load_storage_state(state)` - nap lai storage state cap page vao page hien tai.
+7. `await browser.save_state()` - luu state thuc dung gom cookies va `localStorage` theo origin.
+8. `await browser.load_state(state)` - nap lai state da luu vao browser.
+9. `await browser.save_state_to_file(path)` - ghi state browser ra file JSON.
+10. `await browser.load_state_from_file(path)` - nap state browser tu file JSON.
 
 ## 11. Events
 
@@ -162,13 +167,31 @@ asyncio.run(main())
 7. `page.on("requestfailed", callback)` - nhan event khi request that bai theo du lieu spy.
 8. `page.remove_listener(event, callback)` - go callback da dang ky.
 
+Payload event network hien tai thuong co:
+
+1. `requestId`
+2. `state`
+3. `url`
+4. `method`
+5. `headers`
+6. `requestBody`
+7. `responseHeaders`
+8. `responseBody`
+9. `status`
+10. `error`
+11. `timestamp`
+12. `page`
+
 ## 12. Dialogs
 
 1. `await page.expect_dialog(timeout=5000)` - doi dialog thuc dung duoc shim tu `alert/confirm/prompt`.
 2. `dialog.type` - loai dialog (`alert`, `confirm`, `prompt`).
 3. `dialog.message` - noi dung dialog.
-4. `await dialog.accept(prompt_text=None)` - chap nhan dialog theo practical shim hien tai.
-5. `await dialog.dismiss()` - tu choi/bo qua dialog theo practical shim hien tai.
+4. `dialog.handled` - cho biet dialog da duoc xu ly hay chua.
+5. `dialog.accepted` - cho biet dialog duoc chap nhan hay tu choi.
+6. `dialog.prompt_text` - gia tri text duoc truyen vao prompt khi accept.
+7. `await dialog.accept(prompt_text=None)` - chap nhan dialog theo practical shim hien tai.
+8. `await dialog.dismiss()` - tu choi/bo qua dialog theo practical shim hien tai.
 
 ## Ghi chu thuc te
 
@@ -176,6 +199,7 @@ asyncio.run(main())
 2. Multi-instance va multi-tab da co smoke/stress test trong repo.
 3. Neu gap loi, xem them `docs/rdpbrowser_troubleshooting.md`.
 4. `save_state()` / `load_state()` hien tai tap trung vao cookies va `localStorage`, chua phai browser context parity day du.
-5. Upload file hien tai la practical path cho `<input type="file">`, chua phai native file chooser parity.
-6. Dialog hien tai la practical shim, chua phai native parity hoan chinh.
-7. Tai lieu dinh vi va so sanh voi Juggler nam o `docs/rdpbrowser_vs_juggler.md`.
+5. Repo hien da co hardening cho page-scoped storage state va file-based state round-trip.
+6. Upload file hien tai la practical path cho `<input type="file">`, chua phai native file chooser parity.
+7. Dialog hien tai la practical shim, chua phai native parity hoan chinh.
+8. Tai lieu dinh vi va so sanh voi Juggler nam o `docs/rdpbrowser_vs_juggler.md`.

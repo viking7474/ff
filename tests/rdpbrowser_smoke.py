@@ -197,6 +197,11 @@ async def test_dialogs(reporter):
                 f"message={dialog.message}",
             )
             await run_test(reporter, "dialog.accept(alert)", dialog.accept())
+            reporter.add(
+                "dialog.state alert",
+                "PASS" if dialog.handled and dialog.accepted is True else "FAIL",
+                f"handled={dialog.handled} accepted={dialog.accepted} prompt_text={dialog.prompt_text}",
+            )
 
         dialog_future = asyncio.create_task(page.expect_dialog(timeout=5000))
         await page.evaluate("setTimeout(() => confirm('RDP confirm'), 50); true")
@@ -208,6 +213,11 @@ async def test_dialogs(reporter):
                 f"type={dialog.type}",
             )
             await run_test(reporter, "dialog.dismiss(confirm)", dialog.dismiss())
+            reporter.add(
+                "dialog.state confirm",
+                "PASS" if dialog.handled and dialog.accepted is False else "FAIL",
+                f"handled={dialog.handled} accepted={dialog.accepted} prompt_text={dialog.prompt_text}",
+            )
 
         dialog_future = asyncio.create_task(page.expect_dialog(timeout=5000))
         await page.evaluate("setTimeout(() => prompt('RDP prompt', 'default value'), 50); true")
@@ -224,6 +234,11 @@ async def test_dialogs(reporter):
                 f"default={dialog.default_value}",
             )
             await run_test(reporter, "dialog.accept(prompt)", dialog.accept("typed value"))
+            reporter.add(
+                "dialog.state prompt",
+                "PASS" if dialog.handled and dialog.accepted is True and dialog.prompt_text == "typed value" else "FAIL",
+                f"handled={dialog.handled} accepted={dialog.accepted} prompt_text={dialog.prompt_text}",
+            )
 
 
 async def test_input_basic(reporter):
@@ -293,6 +308,49 @@ async def test_popup_new_page(reporter):
         if popup:
             await run_test(reporter, "popup wait_for_load_state(load)", popup.wait_for_load_state("load"))
             await run_test(reporter, "popup url", popup.url_fresh())
+            active_popup = await browser.get_active_page()
+            reporter.add(
+                "popup active page consistency",
+                "PASS" if active_popup is popup else "PARTIAL",
+                f"active_is_popup={active_popup is popup}",
+            )
+
+        await run_test(
+            reporter,
+            "inject second popup link",
+            page.evaluate(
+                """
+                (() => {
+                  const a = document.createElement('a');
+                  a.id = 'rdp-popup-link-2';
+                  a.href = 'https://example.com/?popup=2';
+                  a.target = '_blank';
+                  a.textContent = 'Open popup 2';
+                  document.body.appendChild(a);
+                  return true;
+                })()
+                """
+            ),
+        )
+        popup_future = asyncio.create_task(page.expect_popup(timeout=8000))
+        await run_test(reporter, "page.click(#rdp-popup-link-2)", page.click("#rdp-popup-link-2"))
+        popup2 = await run_test(reporter, "page.expect_popup()", popup_future)
+        if popup2:
+            await run_test(reporter, "popup2 wait_for_load_state(load)", popup2.wait_for_load_state("load"))
+            await run_test(reporter, "popup2 url", popup2.url_fresh())
+            active_popup2 = await browser.get_active_page()
+            reporter.add(
+                "popup2 active page consistency",
+                "PASS" if active_popup2 is popup2 else "PARTIAL",
+                f"active_is_popup2={active_popup2 is popup2}",
+            )
+            await popup2.close()
+            opener_url = await page.url_fresh()
+            reporter.add(
+                "opener survives popup2.close()",
+                "PASS" if "example.com" in opener_url else "FAIL",
+                opener_url,
+            )
 
 
 async def test_reload_and_cookies(reporter):
@@ -306,6 +364,7 @@ async def test_reload_and_cookies(reporter):
 
 
 async def test_storage_state(reporter):
+    state_file = None
     async with await make_browser(25, headless=False) as browser:
         page = await browser.new_page()
         await page.goto("https://example.com")
@@ -324,6 +383,18 @@ async def test_storage_state(reporter):
             page.set_session_storage({"rdp_session_key": "rdp_session_value"}),
         )
         await run_test(reporter, "page.get_session_storage()", page.get_session_storage())
+        page_state = await run_test(reporter, "page.save_storage_state()", page.save_storage_state())
+        if isinstance(page_state, dict):
+            await run_test(reporter, "page.load_storage_state()", page.load_storage_state(page_state))
+
+        page2 = await browser.new_page()
+        await page2.goto("https://httpbin.org/html")
+        await page2.wait_for_load_state("load")
+        await run_test(
+            reporter,
+            "page2.set_local_storage()",
+            page2.set_local_storage({"rdp_second_origin": "second_value"}),
+        )
 
         await run_test(
             reporter,
@@ -335,9 +406,21 @@ async def test_storage_state(reporter):
         if not isinstance(state, dict):
             reporter.add("browser.save_state() payload", "FAIL", "state is not a dict")
             return
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as handle:
+                state_file = handle.name
+            saved_path = await run_test(reporter, "browser.save_state_to_file()", browser.save_state_to_file(state_file))
+            if isinstance(saved_path, str):
+                reporter.add(
+                    "saved state file exists",
+                    "PASS" if os.path.exists(saved_path) else "FAIL",
+                    saved_path,
+                )
+        except Exception as exc:
+            reporter.add("browser.save_state_to_file()", "FAIL", f"{type(exc).__name__}: {exc}")
 
     async with await make_browser(26, headless=False) as browser2:
-        await run_test(reporter, "browser.load_state()", browser2.load_state(state))
+        await run_test(reporter, "browser.load_state()", browser2.load_state(state, clear_existing=True))
         page = await browser2.new_page()
         await page.goto("https://example.com")
         await page.wait_for_load_state("load")
@@ -355,6 +438,36 @@ async def test_storage_state(reporter):
                 "PASS" if "rdp_state_cookie=1" in cookie_text else "FAIL",
                 cookie_text,
             )
+
+        page2 = await browser2.new_page()
+        await page2.goto("https://httpbin.org/html")
+        await page2.wait_for_load_state("load")
+        local_storage2 = await run_test(reporter, "loaded page2.get_local_storage()", page2.get_local_storage())
+        if isinstance(local_storage2, dict):
+            reporter.add(
+                "loaded second origin localStorage contains key",
+                "PASS" if local_storage2.get("rdp_second_origin") == "second_value" else "FAIL",
+                str(local_storage2),
+            )
+
+    if state_file:
+        async with await make_browser(27, headless=False) as browser3:
+            await run_test(reporter, "browser.load_state_from_file()", browser3.load_state_from_file(state_file, clear_existing=True))
+            page = await browser3.new_page()
+            await page.goto("https://example.com")
+            await page.wait_for_load_state("load")
+            local_storage = await run_test(reporter, "file loaded page.get_local_storage()", page.get_local_storage())
+            if isinstance(local_storage, dict):
+                reporter.add(
+                    "file loaded localStorage contains key",
+                    "PASS" if local_storage.get("rdp_local_key") == "rdp_local_value" else "FAIL",
+                    str(local_storage),
+                )
+
+        try:
+            os.unlink(state_file)
+        except OSError:
+            pass
 
 
 async def test_network(reporter):
@@ -466,16 +579,34 @@ async def test_event_api(reporter):
                 "PASS" if len(requests) > 0 else "FAIL",
                 f"events={len(requests)}",
             )
+            if requests:
+                reporter.add(
+                    'request payload keys',
+                    "PASS" if all(k in requests[0] for k in ["requestId", "state", "url", "method", "requestBody", "timestamp"]) else "FAIL",
+                    str(sorted(requests[0].keys())),
+                )
             reporter.add(
                 'page.on("response")',
                 "PASS" if len(responses) > 0 else "FAIL",
                 f"events={len(responses)}",
             )
+            if responses:
+                reporter.add(
+                    'response payload keys',
+                    "PASS" if all(k in responses[0] for k in ["requestId", "state", "url", "status", "responseBody", "timestamp"]) else "FAIL",
+                    str(sorted(responses[0].keys())),
+                )
             reporter.add(
                 'page.on("requestfinished")',
                 "PASS" if len(finished) > 0 else "FAIL",
                 f"events={len(finished)}",
             )
+            if finished:
+                reporter.add(
+                    'requestfinished payload state',
+                    "PASS" if finished[0].get("state") == "finished" else "FAIL",
+                    str(finished[0].get("state")),
+                )
 
             await page.evaluate(
                 """
@@ -493,6 +624,12 @@ async def test_event_api(reporter):
                 "PASS" if len(failed) > 0 else "PARTIAL",
                 f"events={len(failed)}",
             )
+            if failed:
+                reporter.add(
+                    'requestfailed payload keys',
+                    "PASS" if all(k in failed[0] for k in ["requestId", "state", "url", "error", "timestamp"]) else "FAIL",
+                    str(sorted(failed[0].keys())),
+                )
         except Exception as exc:
             reporter.add("page.on/remove_listener", "FAIL", f"{type(exc).__name__}: {exc}")
 

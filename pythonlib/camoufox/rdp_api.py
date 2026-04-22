@@ -261,19 +261,36 @@ class RDPDialog:
         self.type = dialog_type
         self.message = message
         self.default_value = default_value
-        self._handled = False
+        self.handled = False
+        self.accepted: Optional[bool] = None
+        self.prompt_text: Optional[str] = None
+
+    def _update_from_state(self, state: Dict[str, Any]) -> None:
+        self.handled = bool(state.get("handled", self.handled))
+        self.accepted = state.get("accepted", self.accepted)
+        self.prompt_text = state.get("promptText", self.prompt_text)
 
     async def accept(self, prompt_text: Optional[str] = None) -> None:
-        if self._handled:
+        if self.handled:
             return
-        await self._page._resolve_dialog(self._id, accepted=True, prompt_text=prompt_text)
-        self._handled = True
+        state = await self._page._resolve_dialog(self._id, accepted=True, prompt_text=prompt_text)
+        if isinstance(state, dict):
+            self._update_from_state(state)
+        else:
+            self.handled = True
+            self.accepted = True
+            self.prompt_text = prompt_text
 
     async def dismiss(self) -> None:
-        if self._handled:
+        if self.handled:
             return
-        await self._page._resolve_dialog(self._id, accepted=False, prompt_text=None)
-        self._handled = True
+        state = await self._page._resolve_dialog(self._id, accepted=False, prompt_text=None)
+        if isinstance(state, dict):
+            self._update_from_state(state)
+        else:
+            self.handled = True
+            self.accepted = False
+            self.prompt_text = None
 
 
 class RDPPage:
@@ -314,6 +331,7 @@ class RDPPage:
         self._network_event_task: Optional[asyncio.Task] = None
         self._request_event_ts = 0
         self._spy_event_ts = 0
+        self._seen_network_events: set[tuple] = set()
         self._dialog_shim_ready = False
         self._dialog_last_id = 0
         self.mouse = _Mouse(self)
@@ -407,26 +425,32 @@ class RDPPage:
         )
         self._dialog_shim_ready = True
 
-    async def _resolve_dialog(self, dialog_id: int, accepted: bool, prompt_text: Optional[str]) -> None:
+    async def _resolve_dialog(self, dialog_id: int, accepted: bool, prompt_text: Optional[str]) -> Optional[Dict[str, Any]]:
         self._ensure_open()
         await self._ensure_dialog_shim()
         prompt_value = "null" if prompt_text is None else json.dumps(prompt_text)
-        await self.evaluate(
+        result = await self.evaluate(
             f"""
             (() => {{
               const state = window.__rdpDialogState;
-              if (!state) return false;
+              if (!state) return null;
               const dialog = state.dialogs.find(d => d.id === {dialog_id});
-              if (!dialog) return false;
+              if (!dialog) return null;
               dialog.handled = true;
               dialog.accepted = {str(accepted).lower()};
               dialog.promptText = {prompt_value};
               if (dialog.type === 'confirm') state.auto.confirm = {str(accepted).lower()};
               if (dialog.type === 'prompt' && {prompt_value} !== null) state.auto.prompt = {prompt_value};
-              return true;
+              return JSON.stringify(dialog);
             }})()
             """
         )
+        if isinstance(result, str) and result:
+            try:
+                return json.loads(result)
+            except (json.JSONDecodeError, ValueError):
+                return None
+        return None
 
     async def expect_dialog(self, timeout: int = 5000) -> RDPDialog:
         self._ensure_open()
@@ -485,12 +509,22 @@ class RDPPage:
                 requests = request_result.get("requests", []) if request_result else []
                 for req in requests:
                     self._request_event_ts = max(self._request_event_ts, req.get("timestamp", 0))
+                    signature = (req.get("requestId"), "request", req.get("timestamp", 0))
+                    if signature in self._seen_network_events:
+                        continue
+                    self._seen_network_events.add(signature)
                     payload = {
                         "event": "request",
+                        "state": req.get("state", "request"),
+                        "requestId": req.get("requestId"),
                         "url": req.get("url", ""),
                         "method": req.get("method", "GET"),
                         "headers": req.get("headers"),
-                        "body": req.get("body"),
+                        "requestBody": req.get("body"),
+                        "responseBody": req.get("responseBody"),
+                        "responseHeaders": req.get("responseHeaders"),
+                        "status": req.get("status"),
+                        "error": req.get("error"),
                         "timestamp": req.get("timestamp"),
                         "page": self,
                     }
@@ -502,18 +536,26 @@ class RDPPage:
                 network_events = spy_result.get("requests", []) if spy_result else []
                 for item in network_events:
                     self._spy_event_ts = max(self._spy_event_ts, item.get("timestamp", 0))
+                    state = item.get("state")
+                    signature = (item.get("requestId"), state, item.get("timestamp", 0))
+                    if signature in self._seen_network_events:
+                        continue
+                    self._seen_network_events.add(signature)
                     response_payload = {
                         "event": "response",
+                        "state": state,
+                        "requestId": item.get("requestId"),
                         "url": item.get("url", ""),
                         "method": item.get("method", "GET"),
                         "headers": item.get("headers"),
                         "responseHeaders": item.get("responseHeaders"),
                         "status": item.get("status"),
-                        "body": item.get("responseBody"),
+                        "requestBody": item.get("body"),
+                        "responseBody": item.get("responseBody"),
+                        "error": item.get("error"),
                         "timestamp": item.get("timestamp"),
                         "page": self,
                     }
-                    state = item.get("state")
                     if state == "failed":
                         self._emit_event(
                             "requestfailed",
@@ -976,6 +1018,10 @@ class RDPPage:
             """
         )
 
+    async def clear_local_storage(self) -> None:
+        self._ensure_open()
+        await self.evaluate("localStorage.clear(); true")
+
     async def get_session_storage(self) -> Dict[str, str]:
         self._ensure_open()
         result = await self.evaluate(
@@ -1001,6 +1047,36 @@ class RDPPage:
             """
         )
 
+    async def clear_session_storage(self) -> None:
+        self._ensure_open()
+        await self.evaluate("sessionStorage.clear(); true")
+
+    async def save_storage_state(self) -> Dict[str, Any]:
+        self._ensure_open()
+        url = await self.url_fresh()
+        parsed = urlparse(url)
+        origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else ""
+        return {
+            "origin": origin,
+            "localStorage": await self.get_local_storage(),
+            "sessionStorage": await self.get_session_storage(),
+        }
+
+    async def load_storage_state(self, state: Dict[str, Any]) -> Dict[str, int]:
+        self._ensure_open()
+        local_storage = state.get("localStorage", {}) if isinstance(state, dict) else {}
+        session_storage = state.get("sessionStorage", {}) if isinstance(state, dict) else {}
+        await self.clear_local_storage()
+        await self.clear_session_storage()
+        if local_storage:
+            await self.set_local_storage(local_storage)
+        if session_storage:
+            await self.set_session_storage(session_storage)
+        return {
+            "localStorage": len(local_storage),
+            "sessionStorage": len(session_storage),
+        }
+
     async def wait_for_url(self, pattern: str, timeout: int = 30000) -> str:
         self._ensure_open()
         deadline = time.time() + (timeout / 1000)
@@ -1010,6 +1086,11 @@ class RDPPage:
                 return current
             await asyncio.sleep(0.1)
         raise TimeoutError(f"URL did not match pattern {pattern!r} within {timeout}ms")
+
+    async def expect_popup(self, timeout: int = 5000) -> "RDPPage":
+        self._ensure_open()
+        existing_pages = self._browser.list_pages()
+        return await self._browser.wait_for_new_page(timeout=timeout, existing_pages=existing_pages)
 
     async def is_active(self) -> bool:
         self._ensure_open()
@@ -2419,14 +2500,32 @@ class RDPBrowser:
                 local_storage = await page.get_local_storage()
             except Exception:
                 local_storage = {}
-            state["origins"].append({"origin": origin, "localStorage": local_storage})
+            state["origins"].append(
+                {
+                    "origin": origin,
+                    "localStorage": local_storage,
+                }
+            )
         return state
 
-    async def load_state(self, state: Dict[str, Any]) -> Dict[str, int]:
+    async def save_state_to_file(self, path: str) -> str:
+        state = await self.save_state()
+        resolved = os.path.abspath(path)
+        with open(resolved, "w", encoding="utf-8") as file_handle:
+            json.dump(state, file_handle, indent=2)
+        return resolved
+
+    async def load_state(self, state: Dict[str, Any], clear_existing: bool = False) -> Dict[str, int]:
         cookies = state.get("cookies", []) if isinstance(state, dict) else []
         origins = state.get("origins", []) if isinstance(state, dict) else []
         cookies_set = 0
         origins_loaded = 0
+
+        if clear_existing:
+            try:
+                await self._bridge.send_command("clearCookies", {}, timeout=10)
+            except Exception:
+                pass
 
         if cookies and self._bridge and self._bridge.is_connected:
             try:
@@ -2444,6 +2543,7 @@ class RDPBrowser:
             try:
                 await page.goto(origin)
                 await page.wait_for_load_state("load")
+                await page.clear_local_storage()
                 if local_storage:
                     await page.set_local_storage(local_storage)
                 origins_loaded += 1
@@ -2452,6 +2552,12 @@ class RDPBrowser:
 
         return {"cookies_set": cookies_set, "origins_loaded": origins_loaded}
 
+    async def load_state_from_file(self, path: str, clear_existing: bool = False) -> Dict[str, int]:
+        resolved = os.path.abspath(path)
+        with open(resolved, "r", encoding="utf-8") as file_handle:
+            state = json.load(file_handle)
+        return await self.load_state(state, clear_existing=clear_existing)
+
     async def wait_for_new_page(
         self,
         timeout: int = 5000,
@@ -2459,11 +2565,26 @@ class RDPBrowser:
     ) -> RDPPage:
         previous_pages = existing_pages if existing_pages is not None else self.list_pages()
         previous_tab_actor_ids = {page._tab_actor_id for page in previous_pages if not page.is_closed()}
-        new_tab_actor_id = await self._wait_for_new_tab_actor(
-            previous_tab_actor_ids,
-            timeout=timeout / 1000,
-        )
-        return self._build_page_from_tab(new_tab_actor_id, await self._get_active_tab_id())
+        deadline = time.time() + (timeout / 1000)
+
+        while time.time() < deadline:
+            current_pages = self.list_pages()
+            for page in current_pages:
+                if page.is_closed():
+                    continue
+                if page._tab_actor_id not in previous_tab_actor_ids:
+                    return page
+
+            try:
+                new_tab_actor_id = await self._wait_for_new_tab_actor(
+                    previous_tab_actor_ids,
+                    timeout=min(1.0, max(0.1, deadline - time.time())),
+                )
+                return self._build_page_from_tab(new_tab_actor_id, await self._get_active_tab_id())
+            except TimeoutError:
+                await asyncio.sleep(0.1)
+
+        raise TimeoutError(f"Timed out waiting for a new page within {timeout}ms")
 
     async def page_by_url(self, pattern: str) -> Optional[RDPPage]:
         for page in self.list_pages():

@@ -28,13 +28,14 @@ Status values:
 | `browser.page_by_url()` | ready | page registry + URL polling | Smoke-covered |
 | `browser.pages_by_url()` | ready | page registry + URL polling | Smoke-covered |
 | `browser.close_other_pages()` | ready | browser page lifecycle | Smoke-covered |
-| `browser.wait_for_new_page()` | ready | tab actor diff + page registry | Smoke-covered |
+| `browser.wait_for_new_page()` | ready | registry-aware tab actor wait | Smoke-covered |
 | `goto()` | ready | extension/RDP + document events | Smoke-validated |
 | `reload()` | ready | RDP + document events | Smoke-validated |
 | `wait_for_load_state()` | ready | document events | Smoke-validated |
 | `url_fresh()` | ready | evaluation + state refresh | Smoke-validated |
 | `page.title()` | ready | page evaluation helper | Smoke-covered |
 | `page.wait_for_url()` | ready | polling + URL evaluation | Smoke-covered |
+| `page.expect_popup()` | ready | browser page registry wait | Smoke-covered, popup active-page checks added |
 | `browser.get_active_page()` | ready | bridge active-tab lookup + page registry | Smoke-covered |
 | `page.is_active()` | ready | bridge active-tab lookup | Smoke-covered |
 
@@ -107,8 +108,12 @@ Status values:
 | `page.set_local_storage()` | ready | in-page JS helper | Smoke-covered |
 | `page.get_session_storage()` | ready | in-page JS helper | Smoke-covered |
 | `page.set_session_storage()` | ready | in-page JS helper | Smoke-covered |
+| `page.save_storage_state()` | ready | page-scoped storage snapshot | Smoke-covered |
+| `page.load_storage_state()` | ready | page-scoped storage restore | Smoke-covered |
 | `browser.save_state()` | partial | cookies + per-origin localStorage | Smoke-covered |
 | `browser.load_state()` | partial | cookies + per-origin localStorage | Smoke-covered |
+| `browser.save_state_to_file()` | partial | browser state JSON export | Smoke-covered |
+| `browser.load_state_from_file()` | partial | browser state JSON import | Smoke-covered |
 | memory usage | ready | `MemoryActor` | Smoke-validated |
 | force GC | ready | `MemoryActor` | Smoke-validated |
 
@@ -119,10 +124,10 @@ Status values:
 | `page.on("load")` | ready | document events | Smoke-validated |
 | `page.on("domcontentloaded")` | ready | document events | Implemented |
 | `page.on("framenavigated")` | partial | watcher target updates | Implemented, not smoke-covered yet |
-| `page.on("request")` | ready | bridge request event polling | Smoke-covered |
-| `page.on("response")` | ready | bridge response event polling | Smoke-covered |
-| `page.on("requestfinished")` | ready | bridge spy completion events | Smoke-covered |
-| `page.on("requestfailed")` | partial | bridge spy failure events | Best-effort, smoke-covered |
+| `page.on("request")` | ready | bridge request event polling | Smoke-covered, standardized payload |
+| `page.on("response")` | ready | bridge response event polling | Smoke-covered, standardized payload |
+| `page.on("requestfinished")` | ready | bridge spy completion events | Smoke-covered, carries `state=finished` |
+| `page.on("requestfailed")` | partial | bridge spy failure events | Best-effort, smoke-covered, carries `error` |
 
 ## Dialogs
 
@@ -131,6 +136,9 @@ Status values:
 | `page.expect_dialog()` | partial | practical JS shim | Smoke-covered |
 | `dialog.type` | partial | practical JS shim | Smoke-covered |
 | `dialog.message` | partial | practical JS shim | Smoke-covered |
+| `dialog.handled` | partial | practical JS shim | Smoke-covered |
+| `dialog.accepted` | partial | practical JS shim | Smoke-covered |
+| `dialog.prompt_text` | partial | practical JS shim | Smoke-covered |
 | `dialog.accept()` | partial | practical JS shim | Smoke-covered |
 | `dialog.dismiss()` | partial | practical JS shim | Smoke-covered |
 

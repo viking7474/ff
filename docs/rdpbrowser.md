@@ -145,7 +145,7 @@ Closes every tracked page except the one you keep.
 Closes all tracked pages and clears the page registry.
 
 8. `await browser.wait_for_new_page(timeout=5000)`
-Waits for a newly opened page or tab to appear in the browser registry.
+Waits for a newly opened page or tab to appear, using both page registry changes and tab actor discovery to reduce popup race conditions.
 
 ### Page navigation and state
 
@@ -166,6 +166,9 @@ Return `document.title`.
 
 6. `await page.url_fresh()`
 Return the latest URL by querying the page directly.
+
+7. `await page.expect_popup(timeout=5000)`
+Wait for a popup or new tab opened by actions from the current page.
 
 ### Page DOM helpers
 
@@ -252,6 +255,9 @@ Wait for the next practical dialog observed by the page's dialog shim.
 11. `await dialog.accept(prompt_text=None)` / `await dialog.dismiss()`
 Handle a detected `alert`, `confirm`, or `prompt` through the current practical dialog layer.
 
+12. `dialog.handled` / `dialog.accepted` / `dialog.prompt_text`
+Inspect the observed dialog state after it has been accepted or dismissed.
+
 ### Network and diagnostics
 
 1. `await page.start_capture(patterns)` / `await page.get_captured_responses()`
@@ -268,6 +274,21 @@ Receive practical request/response events built on top of the bridge spy/capture
 
 5. `page.on("requestfinished", callback)` / `page.on("requestfailed", callback)`
 Receive best-effort completion/failure events for observed requests.
+
+Typical event payloads now include:
+
+1. `requestId`
+2. `state`
+3. `url`
+4. `method`
+5. `headers`
+6. `requestBody`
+7. `responseHeaders`
+8. `responseBody`
+9. `status`
+10. `error`
+11. `timestamp`
+12. `page`
 
 6. `await page.memory_usage()`
 Read the current tab's memory metrics.
@@ -289,11 +310,23 @@ Read the current page's `sessionStorage` entries as a dictionary.
 4. `await page.set_session_storage(data)`
 Set one or more `sessionStorage` entries on the current page.
 
-5. `await browser.save_state()`
+5. `await page.save_storage_state()`
+Capture a page-scoped state object containing `localStorage` and `sessionStorage`.
+
+6. `await page.load_storage_state(state)`
+Restore a page-scoped storage state object into the current page.
+
+7. `await browser.save_state()`
 Return a practical reusable state object containing cookies and `localStorage` grouped by origin.
 
-6. `await browser.load_state(state)`
+8. `await browser.load_state(state)`
 Restore cookies and per-origin `localStorage` from a saved state object.
+
+9. `await browser.save_state_to_file(path)`
+Write a practical browser state object to disk as JSON.
+
+10. `await browser.load_state_from_file(path)`
+Load a practical browser state object from disk.
 
 ## Multi-Instance Usage
 
@@ -342,6 +375,12 @@ Current limitations:
 1. cookies
 2. per-origin `localStorage`
 
+Hardening additions in this repo now also include:
+
+1. page-scoped `save_storage_state()` / `load_storage_state()`
+2. file-based `save_state_to_file()` / `load_state_from_file()`
+3. multi-origin persistence validation
+
 `sessionStorage` helpers exist at page level, but are not yet treated as portable browser-wide state parity.
 
 ## Official Smoke Suite
@@ -383,6 +422,7 @@ The repo also includes focused stress scripts:
 2. `tests/rdpbrowser_stress_multi_instance.py`
 3. `tests/rdpbrowser_stress_multi_tab.py`
 4. `tests/rdpbrowser_windows_cleanup_check.py`
+5. `tests/rdpbrowser_state_persistence_check.py`
 
 Use them to validate repeated runs, multi-instance behavior, multi-tab lifecycle, and Windows cleanup/port reuse.
 

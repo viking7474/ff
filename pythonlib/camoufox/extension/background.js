@@ -141,6 +141,7 @@ function onSpyRequest(details) {
   }
 
   const entry = {
+    requestId: details.requestId,
     url: details.url,
     method: details.method,
     body: bodyText,
@@ -220,6 +221,7 @@ function onSpyCompleted(details) {
 function onSpyError(details) {
   if (!spyPatterns.some(p => details.url.includes(p))) return;
   const entry = spyPending.get(details.requestId) || {
+    requestId: details.requestId,
     url: details.url,
     method: details.method || "GET",
     body: null,

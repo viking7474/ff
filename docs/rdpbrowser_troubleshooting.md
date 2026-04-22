@@ -134,6 +134,8 @@ Recommendations:
 
 1. use `page.get_session_storage()` / `page.set_session_storage()` only as page-level helpers for now
 2. treat `save_state()` / `load_state()` as a practical session reuse tool, not a full Playwright-style storage-state equivalent
+3. use `clear_existing=True` when you want a cleaner restore on a fresh browser instance
+4. use `save_state_to_file()` / `load_state_from_file()` when you need to persist state outside process memory
 
 ## Network Capture Confusion
 
