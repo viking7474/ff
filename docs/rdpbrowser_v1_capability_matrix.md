@@ -28,6 +28,7 @@ Status values:
 | `browser.page_by_url()` | ready | page registry + URL polling | Smoke-covered |
 | `browser.pages_by_url()` | ready | page registry + URL polling | Smoke-covered |
 | `browser.close_other_pages()` | ready | browser page lifecycle | Smoke-covered |
+| `browser.wait_for_new_page()` | ready | tab actor diff + page registry | Smoke-covered |
 | `goto()` | ready | extension/RDP + document events | Smoke-validated |
 | `reload()` | ready | RDP + document events | Smoke-validated |
 | `wait_for_load_state()` | ready | document events | Smoke-validated |
@@ -76,6 +77,7 @@ Status values:
 | hover | ready | selector rect + mouse move | Smoke-covered |
 | focus | ready | in-page JS focus helper | Smoke-covered |
 | press(selector, key) | ready | focus helper + keyboard press | Smoke-covered |
+| set_input_files | partial | practical file input injection | Smoke-covered |
 | fill | ready | click + DOM clear + bridge type | Smoke-validated |
 | locator click | ready | bridge input | Smoke-validated |
 
@@ -111,14 +113,29 @@ Status values:
 | `page.on("load")` | ready | document events | Smoke-validated |
 | `page.on("domcontentloaded")` | ready | document events | Implemented |
 | `page.on("framenavigated")` | partial | watcher target updates | Implemented, not smoke-covered yet |
-| request/response event parity | missing | n/a | Use capture/spy APIs instead |
+| `page.on("request")` | ready | bridge request event polling | Smoke-covered |
+| `page.on("response")` | ready | bridge response event polling | Smoke-covered |
+| `page.on("requestfinished")` | ready | bridge spy completion events | Smoke-covered |
+| `page.on("requestfailed")` | partial | bridge spy failure events | Best-effort, smoke-covered |
+
+## Dialogs
+
+| Capability | Status | Backend | Notes |
+|---|---|---|---|
+| `page.expect_dialog()` | partial | practical JS shim | Smoke-covered |
+| `dialog.type` | partial | practical JS shim | Smoke-covered |
+| `dialog.message` | partial | practical JS shim | Smoke-covered |
+| `dialog.accept()` | partial | practical JS shim | Smoke-covered |
+| `dialog.dismiss()` | partial | practical JS shim | Smoke-covered |
 
 ## Known Limits
 
 1. This is not full Playwright protocol parity.
 2. Browser contexts are not modeled as a Playwright-equivalent abstraction.
-3. Downloads, dialogs, file chooser flows, and popup orchestration are not part of the current v1 supported surface.
-4. `httpbin.org/html` may return an empty title in simple smoke checks; this is not treated as an automation failure.
+3. File upload support exists through `set_input_files()`, but native chooser parity is not part of the current v1 supported surface.
+4. Downloads and file chooser flows beyond direct file input population are not part of the current v1 supported surface.
+5. Dialog handling exists as a practical shim, not native parity.
+6. `httpbin.org/html` may return an empty title in simple smoke checks; this is not treated as an automation failure.
 
 ## Recommendation
 

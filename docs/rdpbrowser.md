@@ -144,6 +144,9 @@ Closes every tracked page except the one you keep.
 7. `await browser.close_all_pages()`
 Closes all tracked pages and clears the page registry.
 
+8. `await browser.wait_for_new_page(timeout=5000)`
+Waits for a newly opened page or tab to appear in the browser registry.
+
 ### Page navigation and state
 
 1. `await page.goto(url)`
@@ -225,20 +228,29 @@ Focus the matched element.
 4. `await page.press(selector, key)`
 Focus the selector and press a keyboard key.
 
-5. `await page.fill(selector, text)`
+5. `await page.set_input_files(selector, paths)`
+Populate a file input with one or more local files through the current practical file-upload path.
+
+6. `await page.fill(selector, text)`
 Clear the element and type text through the trusted bridge path.
 
-6. `await page.bring_to_front()`
+7. `await page.bring_to_front()`
 Activate the page's tab.
 
-7. `await page.close()`
+8. `await page.close()`
 Close the page's tab and unregister it.
 
-8. `await page.is_active()`
+9. `await page.is_active()`
 Return whether this page currently owns the active tab.
 
-9. `page.is_closed()`
+10. `page.is_closed()`
 Return whether the page has been disposed/closed.
+
+10. `await page.expect_dialog(timeout=5000)`
+Wait for the next practical dialog observed by the page's dialog shim.
+
+11. `await dialog.accept(prompt_text=None)` / `await dialog.dismiss()`
+Handle a detected `alert`, `confirm`, or `prompt` through the current practical dialog layer.
 
 ### Network and diagnostics
 
@@ -251,10 +263,16 @@ Capture request metadata and response bodies for matching URLs.
 3. `await page.wait_for_response(pattern)`
 Wait until a captured response appears.
 
-4. `await page.memory_usage()`
+4. `page.on("request", callback)` / `page.on("response", callback)`
+Receive practical request/response events built on top of the bridge spy/capture layer.
+
+5. `page.on("requestfinished", callback)` / `page.on("requestfailed", callback)`
+Receive best-effort completion/failure events for observed requests.
+
+6. `await page.memory_usage()`
 Read the current tab's memory metrics.
 
-5. `await page.force_gc()`
+7. `await page.force_gc()`
 Force GC and cycle collection for the current tab.
 
 ## Multi-Instance Usage
@@ -269,6 +287,33 @@ Recommended model:
 
 1. One `RDPBrowser` instance per browser/profile
 2. One main controlled page per worker or task group
+
+## Dialog Handling Notes
+
+`RDPBrowser` dialog support is currently implemented as a practical JavaScript shim for:
+
+1. `alert`
+2. `confirm`
+3. `prompt`
+
+This is useful for automation flows and smoke validation, but it is not yet native browser dialog parity.
+
+## File Upload Notes
+
+`RDPBrowser` currently supports a practical file-upload path through:
+
+1. `await page.set_input_files(selector, paths)`
+
+Current scope:
+
+1. targets `<input type="file">`
+2. creates `File` objects in page context
+3. dispatches `input` and `change`
+
+Current limitations:
+
+1. this is not native file chooser parity
+2. `wait_for_file_chooser()` is not part of the current supported surface
 
 ## Official Smoke Suite
 

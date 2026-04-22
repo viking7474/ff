@@ -99,6 +99,28 @@ If it regresses:
 2. confirm `keyboard.press()` works
 3. confirm the page has a valid `tab_id` and bridge connection
 
+## File Upload Problems
+
+### `set_input_files()` fails
+
+Cause:
+
+1. selector does not point to an `<input type="file">`
+2. one of the provided local paths does not exist
+3. multiple files were supplied to a non-multiple file input
+
+Current behavior:
+
+1. `set_input_files()` is a practical file-input helper
+2. it does not implement native file chooser parity
+3. it dispatches `input` and `change` after populating the file input
+
+Recommendations:
+
+1. start with a simple injected `<input type="file">` smoke flow
+2. verify the selector points to the real file input element
+3. verify file existence before calling the helper
+
 ## Network Capture Confusion
 
 ### `wait_for_response()` succeeds but `get_captured_responses()` is empty

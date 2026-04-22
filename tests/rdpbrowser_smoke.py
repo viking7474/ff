@@ -1,5 +1,6 @@
 import asyncio
 import os
+import tempfile
 import traceback
 from pathlib import Path
 
@@ -125,6 +126,106 @@ async def test_wait_until_hidden(reporter):
         )
 
 
+async def test_file_upload(reporter):
+    async with await make_browser(24, headless=False) as browser:
+        page = await browser.new_page()
+        await page.goto("https://example.com")
+        await page.wait_for_load_state("load")
+        await run_test(
+            reporter,
+            "inject file input",
+            page.evaluate(
+                """
+                (() => {
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.id = 'rdp-file-input';
+                  document.body.appendChild(input);
+                  return true;
+                })()
+                """
+            ),
+        )
+
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode="w", encoding="utf-8") as handle:
+                handle.write("rdpbrowser upload test")
+                temp_path = handle.name
+
+            await run_test(
+                reporter,
+                "page.set_input_files(#rdp-file-input)",
+                page.set_input_files("#rdp-file-input", temp_path),
+            )
+            await run_test(
+                reporter,
+                "uploaded file count",
+                page.evaluate("document.querySelector('#rdp-file-input').files.length"),
+            )
+            await run_test(
+                reporter,
+                "uploaded file name",
+                page.evaluate("document.querySelector('#rdp-file-input').files[0].name"),
+            )
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+
+
+async def test_dialogs(reporter):
+    async with await make_browser(23, headless=False) as browser:
+        page = await browser.new_page()
+        await page.goto("https://example.com")
+        await page.wait_for_load_state("load")
+
+        dialog_future = asyncio.create_task(page.expect_dialog(timeout=5000))
+        await page.evaluate("setTimeout(() => alert('RDP alert'), 50); true")
+        dialog = await run_test(reporter, "page.expect_dialog(alert)", dialog_future)
+        if dialog:
+            reporter.add(
+                "dialog.type alert",
+                "PASS" if dialog.type == "alert" else "FAIL",
+                f"type={dialog.type}",
+            )
+            reporter.add(
+                "dialog.message alert",
+                "PASS" if dialog.message == "RDP alert" else "FAIL",
+                f"message={dialog.message}",
+            )
+            await run_test(reporter, "dialog.accept(alert)", dialog.accept())
+
+        dialog_future = asyncio.create_task(page.expect_dialog(timeout=5000))
+        await page.evaluate("setTimeout(() => confirm('RDP confirm'), 50); true")
+        dialog = await run_test(reporter, "page.expect_dialog(confirm)", dialog_future)
+        if dialog:
+            reporter.add(
+                "dialog.type confirm",
+                "PASS" if dialog.type == "confirm" else "FAIL",
+                f"type={dialog.type}",
+            )
+            await run_test(reporter, "dialog.dismiss(confirm)", dialog.dismiss())
+
+        dialog_future = asyncio.create_task(page.expect_dialog(timeout=5000))
+        await page.evaluate("setTimeout(() => prompt('RDP prompt', 'default value'), 50); true")
+        dialog = await run_test(reporter, "page.expect_dialog(prompt)", dialog_future)
+        if dialog:
+            reporter.add(
+                "dialog.type prompt",
+                "PASS" if dialog.type == "prompt" else "FAIL",
+                f"type={dialog.type}",
+            )
+            reporter.add(
+                "dialog.default prompt",
+                "PASS" if dialog.default_value == "default value" else "FAIL",
+                f"default={dialog.default_value}",
+            )
+            await run_test(reporter, "dialog.accept(prompt)", dialog.accept("typed value"))
+
+
 async def test_input_basic(reporter):
     async with await make_browser(1, headless=False) as browser:
         page = await browser.new_page()
@@ -158,6 +259,40 @@ async def test_click_and_locator_click(reporter):
         await run_test(reporter, "locator.click()", loc.click())
         await asyncio.sleep(2)
         await run_test(reporter, "url after locator.click()", page.url_fresh())
+
+
+async def test_popup_new_page(reporter):
+    async with await make_browser(22, headless=False) as browser:
+        page = await browser.new_page()
+        await page.goto("https://example.com")
+        await page.wait_for_load_state("load")
+        await run_test(
+            reporter,
+            "inject popup link",
+            page.evaluate(
+                """
+                (() => {
+                  const a = document.createElement('a');
+                  a.id = 'rdp-popup-link';
+                  a.href = 'https://httpbin.org/html';
+                  a.target = '_blank';
+                  a.textContent = 'Open popup';
+                  document.body.appendChild(a);
+                  return true;
+                })()
+                """
+            ),
+        )
+        existing_pages = browser.list_pages()
+        await run_test(reporter, "page.click(#rdp-popup-link)", page.click("#rdp-popup-link"))
+        popup = await run_test(
+            reporter,
+            "browser.wait_for_new_page()",
+            browser.wait_for_new_page(timeout=8000, existing_pages=existing_pages),
+        )
+        if popup:
+            await run_test(reporter, "popup wait_for_load_state(load)", popup.wait_for_load_state("load"))
+            await run_test(reporter, "popup url", popup.url_fresh())
 
 
 async def test_reload_and_cookies(reporter):
@@ -239,19 +374,73 @@ async def test_event_api(reporter):
     async with await make_browser(12, headless=False) as browser:
         page = await browser.new_page()
         called = []
+        requests = []
+        responses = []
+        finished = []
+        failed = []
 
         def cb(payload):
             called.append(payload)
 
+        def on_request(payload):
+            requests.append(payload)
+
+        def on_response(payload):
+            responses.append(payload)
+
+        def on_finished(payload):
+            finished.append(payload)
+
+        def on_failed(payload):
+            failed.append(payload)
+
         try:
             page.on("load", cb)
+            page.on("request", on_request)
+            page.on("response", on_response)
+            page.on("requestfinished", on_finished)
+            page.on("requestfailed", on_failed)
             await page.goto("https://example.com")
             await page.wait_for_load_state("load")
+            await asyncio.sleep(2)
             page.remove_listener("load", cb)
             if called:
                 reporter.add("page.on/remove_listener", "PASS", f"events={len(called)}")
             else:
                 reporter.add("page.on/remove_listener", "PARTIAL", "No callback fired")
+
+            reporter.add(
+                'page.on("request")',
+                "PASS" if len(requests) > 0 else "FAIL",
+                f"events={len(requests)}",
+            )
+            reporter.add(
+                'page.on("response")',
+                "PASS" if len(responses) > 0 else "FAIL",
+                f"events={len(responses)}",
+            )
+            reporter.add(
+                'page.on("requestfinished")',
+                "PASS" if len(finished) > 0 else "FAIL",
+                f"events={len(finished)}",
+            )
+
+            await page.evaluate(
+                """
+                (() => {
+                  const img = new Image();
+                  img.src = 'http://127.0.0.1:9/rdp-fail.png?' + Date.now();
+                  document.body.appendChild(img);
+                  return true;
+                })()
+                """
+            )
+            await asyncio.sleep(3)
+            reporter.add(
+                'page.on("requestfailed")',
+                "PASS" if len(failed) > 0 else "PARTIAL",
+                f"events={len(failed)}",
+            )
         except Exception as exc:
             reporter.add("page.on/remove_listener", "FAIL", f"{type(exc).__name__}: {exc}")
 
@@ -380,8 +569,11 @@ async def main():
     await test_single_core(reporter)
     await test_selectors(reporter)
     await test_wait_until_hidden(reporter)
+    await test_file_upload(reporter)
+    await test_dialogs(reporter)
     await test_input_basic(reporter)
     await test_click_and_locator_click(reporter)
+    await test_popup_new_page(reporter)
     await test_reload_and_cookies(reporter)
     await test_network(reporter)
     await test_memory_and_gc(reporter)

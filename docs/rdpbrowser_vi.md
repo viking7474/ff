@@ -53,7 +53,8 @@ asyncio.run(main())
 5. `await browser.pages_by_url(pattern)` - tim tat ca page co URL chua `pattern`.
 6. `await browser.close_other_pages(page)` - dong tat ca page tru page duoc giu lai.
 7. `await browser.close_all_pages()` - dong tat ca page dang duoc theo doi va xoa registry.
-8. `await browser.close()` - dong browser.
+8. `await browser.wait_for_new_page(timeout=5000)` - doi mot page/tab moi xuat hien trong registry sau khi click hoac window.open.
+9. `await browser.close()` - dong browser.
 
 ## 2. Page lifecycle va tab management
 
@@ -109,14 +110,15 @@ asyncio.run(main())
 2. `await page.hover(selector)` - dua chuot den giua phan tu match.
 3. `await page.focus(selector)` - focus vao phan tu match.
 4. `await page.press(selector, key)` - focus selector roi bam phim.
-5. `await page.fill(selector, text)` - clear va nhap text bang trusted bridge.
-6. `await page.keyboard.type(text)` - go text tu ban phim.
-7. `await page.keyboard.press(key)` - bam 1 phim.
-8. `await page.mouse.move_smooth(x, y)` - di chuot human-like.
-9. `await page.mouse.click(x, y)` - click tai toa do.
-10. `await page.mouse.click_smooth(x, y)` - move + hover + click.
-11. `await page.mouse.wheel(delta_x, delta_y)` - scroll 1 buoc.
-12. `await page.mouse.wheel_smooth(delta_y)` - scroll human-like.
+5. `await page.set_input_files(selector, paths)` - nap mot hoac nhieu file vao `<input type="file">` theo practical upload path hien tai.
+6. `await page.fill(selector, text)` - clear va nhap text bang trusted bridge.
+7. `await page.keyboard.type(text)` - go text tu ban phim.
+8. `await page.keyboard.press(key)` - bam 1 phim.
+9. `await page.mouse.move_smooth(x, y)` - di chuot human-like.
+10. `await page.mouse.click(x, y)` - click tai toa do.
+11. `await page.mouse.click_smooth(x, y)` - move + hover + click.
+12. `await page.mouse.wheel(delta_x, delta_y)` - scroll 1 buoc.
+13. `await page.mouse.wheel_smooth(delta_y)` - scroll human-like.
 
 ## 7. Screenshot / state helpers
 
@@ -145,11 +147,25 @@ asyncio.run(main())
 1. `page.on("load", callback)` - dang ky callback khi trang load xong.
 2. `page.on("domcontentloaded", callback)` - callback cho DOM content loaded.
 3. `page.on("framenavigated", callback)` - callback khi top-level target/navigation thay doi.
-4. `page.remove_listener(event, callback)` - go callback da dang ky.
+4. `page.on("request", callback)` - nhan event request o muc practical thong qua bridge.
+5. `page.on("response", callback)` - nhan event response o muc practical thong qua bridge.
+6. `page.on("requestfinished", callback)` - nhan event khi request ket thuc theo du lieu spy.
+7. `page.on("requestfailed", callback)` - nhan event khi request that bai theo du lieu spy.
+8. `page.remove_listener(event, callback)` - go callback da dang ky.
+
+## 11. Dialogs
+
+1. `await page.expect_dialog(timeout=5000)` - doi dialog thuc dung duoc shim tu `alert/confirm/prompt`.
+2. `dialog.type` - loai dialog (`alert`, `confirm`, `prompt`).
+3. `dialog.message` - noi dung dialog.
+4. `await dialog.accept(prompt_text=None)` - chap nhan dialog theo practical shim hien tai.
+5. `await dialog.dismiss()` - tu choi/bo qua dialog theo practical shim hien tai.
 
 ## Ghi chu thuc te
 
 1. `RDPBrowser` khong phai la Playwright parity day du.
 2. Multi-instance va multi-tab da co smoke/stress test trong repo.
 3. Neu gap loi, xem them `docs/rdpbrowser_troubleshooting.md`.
-4. Tai lieu dinh vi va so sanh voi Juggler nam o `docs/rdpbrowser_vs_juggler.md`.
+4. Upload file hien tai la practical path cho `<input type="file">`, chua phai native file chooser parity.
+5. Dialog hien tai la practical shim, chua phai native parity hoan chinh.
+6. Tai lieu dinh vi va so sanh voi Juggler nam o `docs/rdpbrowser_vs_juggler.md`.

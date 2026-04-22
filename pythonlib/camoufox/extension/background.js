@@ -20,7 +20,9 @@ const MAX_CAPTURES = 50;
 let spyPatterns = [];
 let spyPending = new Map();   // requestId -> partial entry
 let spyResults = [];          // completed {url, method, headers, body, responseBody, timestamp}
+let requestEvents = [];       // request-start events
 const MAX_SPY = 100;
+const MAX_REQUEST_EVENTS = 200;
 
 function setupCaptureListener() {
   // Remove existing listener if any
@@ -92,6 +94,12 @@ function setupSpyListeners() {
   if (browser.webRequest.onSendHeaders.hasListener(onSpyHeaders)) {
     browser.webRequest.onSendHeaders.removeListener(onSpyHeaders);
   }
+  if (browser.webRequest.onCompleted.hasListener(onSpyCompleted)) {
+    browser.webRequest.onCompleted.removeListener(onSpyCompleted);
+  }
+  if (browser.webRequest.onErrorOccurred.hasListener(onSpyError)) {
+    browser.webRequest.onErrorOccurred.removeListener(onSpyError);
+  }
   if (spyPatterns.length === 0) return;
 
   browser.webRequest.onBeforeRequest.addListener(
@@ -103,6 +111,15 @@ function setupSpyListeners() {
     onSpyHeaders,
     { urls: ["<all_urls>"] },
     ["requestHeaders"]
+  );
+  browser.webRequest.onCompleted.addListener(
+    onSpyCompleted,
+    { urls: ["<all_urls>"] },
+    ["responseHeaders"]
+  );
+  browser.webRequest.onErrorOccurred.addListener(
+    onSpyError,
+    { urls: ["<all_urls>"] }
   );
 }
 
@@ -128,10 +145,18 @@ function onSpyRequest(details) {
     method: details.method,
     body: bodyText,
     headers: null,
+    responseHeaders: null,
     responseBody: null,
+    status: null,
+    error: null,
+    state: "request",
     timestamp: Date.now(),
   };
   spyPending.set(details.requestId, entry);
+  requestEvents.push({ ...entry });
+  if (requestEvents.length > MAX_REQUEST_EVENTS) {
+    requestEvents = requestEvents.slice(-MAX_REQUEST_EVENTS);
+  }
 
   // Also capture response body via filterResponseData
   try {
@@ -150,17 +175,20 @@ function onSpyRequest(details) {
         for (const c of chunks) { merged.set(c, off); off += c.byteLength; }
         entry.responseBody = new TextDecoder("utf-8").decode(merged);
       } catch (_) {}
+      entry.state = "finished";
       spyResults.push(entry);
       spyPending.delete(details.requestId);
       if (spyResults.length > MAX_SPY) spyResults = spyResults.slice(-MAX_SPY);
     };
     filter.onerror = () => {
       try { filter.close(); } catch (_) {}
+      entry.state = entry.error ? "failed" : "finished";
       spyResults.push(entry);
       spyPending.delete(details.requestId);
     };
   } catch (_) {
     // filterResponseData not available, save without response
+    entry.state = "finished";
     spyResults.push(entry);
     spyPending.delete(details.requestId);
   }
@@ -175,6 +203,39 @@ function onSpyHeaders(details) {
   for (const h of details.requestHeaders) {
     entry.headers[h.name] = h.value;
   }
+}
+
+function onSpyCompleted(details) {
+  const entry = spyPending.get(details.requestId);
+  if (!entry) return;
+  entry.status = details.statusCode || null;
+  if (details.responseHeaders) {
+    entry.responseHeaders = {};
+    for (const h of details.responseHeaders) {
+      entry.responseHeaders[h.name] = h.value;
+    }
+  }
+}
+
+function onSpyError(details) {
+  if (!spyPatterns.some(p => details.url.includes(p))) return;
+  const entry = spyPending.get(details.requestId) || {
+    url: details.url,
+    method: details.method || "GET",
+    body: null,
+    headers: null,
+    responseHeaders: null,
+    responseBody: null,
+    status: null,
+    error: null,
+    state: "request",
+    timestamp: Date.now(),
+  };
+  entry.error = details.error || "unknown";
+  entry.state = "failed";
+  spyPending.delete(details.requestId);
+  spyResults.push(entry);
+  if (spyResults.length > MAX_SPY) spyResults = spyResults.slice(-MAX_SPY);
 }
 
 async function initPort() {
@@ -352,6 +413,7 @@ function connect() {
           spyPatterns = params.patterns || [];
           spyPending = new Map();
           spyResults = [];
+          requestEvents = [];
           setupSpyListeners();
           result = { ok: true, patterns: spyPatterns };
           break;
@@ -369,9 +431,17 @@ function connect() {
           break;
         }
 
+        case "getRequestEvents": {
+          const reqSince = params.since || 0;
+          const reqFiltered = requestEvents.filter(r => r.timestamp > reqSince);
+          result = { requests: reqFiltered };
+          break;
+        }
+
         case "clearSpied":
           spyResults = [];
           spyPending = new Map();
+          requestEvents = [];
           result = { ok: true };
           break;
 

@@ -21,6 +21,7 @@ import ctypes
 import inspect
 import json
 import logging
+import mimetypes
 import os
 import shutil
 import subprocess
@@ -246,6 +247,35 @@ class _ExtensionBridge:
         return self._ws is not None
 
 
+class RDPDialog:
+    def __init__(
+        self,
+        page: "RDPPage",
+        dialog_id: int,
+        dialog_type: str,
+        message: str,
+        default_value: Optional[str] = None,
+    ):
+        self._page = page
+        self._id = dialog_id
+        self.type = dialog_type
+        self.message = message
+        self.default_value = default_value
+        self._handled = False
+
+    async def accept(self, prompt_text: Optional[str] = None) -> None:
+        if self._handled:
+            return
+        await self._page._resolve_dialog(self._id, accepted=True, prompt_text=prompt_text)
+        self._handled = True
+
+    async def dismiss(self) -> None:
+        if self._handled:
+            return
+        await self._page._resolve_dialog(self._id, accepted=False, prompt_text=None)
+        self._handled = True
+
+
 class RDPPage:
     """Page handle with Playwright-like API over Firefox RDP."""
 
@@ -280,6 +310,12 @@ class RDPPage:
         self._closed = False
         self._nav_lock = asyncio.Lock()
         self._last_emitted_event: Dict[str, tuple] = {}
+        self._network_events_started = False
+        self._network_event_task: Optional[asyncio.Task] = None
+        self._request_event_ts = 0
+        self._spy_event_ts = 0
+        self._dialog_shim_ready = False
+        self._dialog_last_id = 0
         self.mouse = _Mouse(self)
         self.keyboard = _Keyboard(self)
 
@@ -325,6 +361,183 @@ class RDPPage:
         if self._closed:
             return
         self._loop.call_soon_threadsafe(self._emit_event, event, payload)
+
+    async def _ensure_dialog_shim(self) -> None:
+        if self._dialog_shim_ready:
+            return
+        await self.evaluate(
+            """
+            (() => {
+              if (window.__rdpDialogState) return true;
+              const state = {
+                dialogs: [],
+                nextId: 1,
+                auto: { confirm: true, prompt: '' },
+              };
+              const pushDialog = (type, message, defaultValue = null) => {
+                const id = state.nextId++;
+                state.dialogs.push({
+                  id,
+                  type,
+                  message: String(message ?? ''),
+                  defaultValue,
+                  handled: false,
+                  accepted: null,
+                  promptText: null,
+                  timestamp: Date.now(),
+                });
+                return id;
+              };
+              window.__rdpDialogState = state;
+              window.alert = function(message) {
+                pushDialog('alert', message, null);
+                return undefined;
+              };
+              window.confirm = function(message) {
+                pushDialog('confirm', message, null);
+                return state.auto.confirm;
+              };
+              window.prompt = function(message, defaultValue = '') {
+                pushDialog('prompt', message, defaultValue == null ? '' : String(defaultValue));
+                return state.auto.prompt;
+              };
+              return true;
+            })()
+            """
+        )
+        self._dialog_shim_ready = True
+
+    async def _resolve_dialog(self, dialog_id: int, accepted: bool, prompt_text: Optional[str]) -> None:
+        self._ensure_open()
+        await self._ensure_dialog_shim()
+        prompt_value = "null" if prompt_text is None else json.dumps(prompt_text)
+        await self.evaluate(
+            f"""
+            (() => {{
+              const state = window.__rdpDialogState;
+              if (!state) return false;
+              const dialog = state.dialogs.find(d => d.id === {dialog_id});
+              if (!dialog) return false;
+              dialog.handled = true;
+              dialog.accepted = {str(accepted).lower()};
+              dialog.promptText = {prompt_value};
+              if (dialog.type === 'confirm') state.auto.confirm = {str(accepted).lower()};
+              if (dialog.type === 'prompt' && {prompt_value} !== null) state.auto.prompt = {prompt_value};
+              return true;
+            }})()
+            """
+        )
+
+    async def expect_dialog(self, timeout: int = 5000) -> RDPDialog:
+        self._ensure_open()
+        await self._ensure_dialog_shim()
+        deadline = time.time() + (timeout / 1000)
+        while time.time() < deadline:
+            result = await self.evaluate(
+                f"""
+                (() => {{
+                  const state = window.__rdpDialogState;
+                  if (!state) return null;
+                  const dialog = state.dialogs.find(d => d.id > {self._dialog_last_id});
+                  return dialog ? JSON.stringify(dialog) : null;
+                }})()
+                """
+            )
+            if isinstance(result, str) and result:
+                try:
+                    dialog = json.loads(result)
+                except (json.JSONDecodeError, ValueError):
+                    dialog = None
+                if dialog:
+                    self._dialog_last_id = max(self._dialog_last_id, dialog.get("id", 0))
+                    return RDPDialog(
+                        self,
+                        dialog_id=dialog.get("id", 0),
+                        dialog_type=dialog.get("type", "alert"),
+                        message=dialog.get("message", ""),
+                        default_value=dialog.get("defaultValue"),
+                    )
+            await asyncio.sleep(0.1)
+        raise TimeoutError(f"Dialog not observed within {timeout}ms")
+
+    async def _ensure_network_event_bridge(self) -> None:
+        if self._network_events_started:
+            return
+        if not self._bridge or not self._bridge.is_connected:
+            raise ConnectionError("Extension bridge not connected")
+        await self._bridge.send_command("startSpy", {"patterns": ["http"]}, timeout=10)
+        await self._bridge.send_command("startCapture", {"patterns": ["http"]}, timeout=10)
+        self._request_event_ts = int(time.time() * 1000)
+        self._spy_event_ts = self._request_event_ts
+        self._network_events_started = True
+        self._network_event_task = self._loop.create_task(self._network_event_poller())
+
+    async def _network_event_poller(self) -> None:
+        try:
+            while not self._closed:
+                if not self._bridge or not self._bridge.is_connected:
+                    await asyncio.sleep(0.2)
+                    continue
+
+                request_result = await self._bridge.send_command(
+                    "getRequestEvents", {"since": self._request_event_ts}, timeout=5
+                )
+                requests = request_result.get("requests", []) if request_result else []
+                for req in requests:
+                    self._request_event_ts = max(self._request_event_ts, req.get("timestamp", 0))
+                    payload = {
+                        "event": "request",
+                        "url": req.get("url", ""),
+                        "method": req.get("method", "GET"),
+                        "headers": req.get("headers"),
+                        "body": req.get("body"),
+                        "timestamp": req.get("timestamp"),
+                        "page": self,
+                    }
+                    self._emit_event("request", payload)
+
+                spy_result = await self._bridge.send_command(
+                    "getSpiedRequests", {"since": self._spy_event_ts}, timeout=5
+                )
+                network_events = spy_result.get("requests", []) if spy_result else []
+                for item in network_events:
+                    self._spy_event_ts = max(self._spy_event_ts, item.get("timestamp", 0))
+                    response_payload = {
+                        "event": "response",
+                        "url": item.get("url", ""),
+                        "method": item.get("method", "GET"),
+                        "headers": item.get("headers"),
+                        "responseHeaders": item.get("responseHeaders"),
+                        "status": item.get("status"),
+                        "body": item.get("responseBody"),
+                        "timestamp": item.get("timestamp"),
+                        "page": self,
+                    }
+                    state = item.get("state")
+                    if state == "failed":
+                        self._emit_event(
+                            "requestfailed",
+                            {
+                                **response_payload,
+                                "event": "requestfailed",
+                                "error": item.get("error"),
+                            },
+                        )
+                        continue
+                    self._emit_event("response", response_payload)
+                    self._emit_event(
+                        "requestfinished",
+                        {
+                            **response_payload,
+                            "event": "requestfinished",
+                        },
+                    )
+
+                await asyncio.sleep(0.2)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("RDPBrowser network event poller failed")
 
     def _detach_persistent_console_listener(self) -> None:
         if self._persistent_console_id and self._persistent_console_cb:
@@ -490,6 +703,9 @@ class RDPPage:
 
     def dispose(self) -> None:
         self._closed = True
+        if self._network_event_task:
+            self._network_event_task.cancel()
+            self._network_event_task = None
         self._detach_persistent_console_listener()
         if self._watcher_id and self._persistent_target_cb:
             try:
@@ -1141,6 +1357,70 @@ class RDPPage:
                 "Extension bridge not connected, cannot fill with trusted events"
             )
 
+    async def set_input_files(self, selector: str, paths) -> int:
+        self._ensure_open()
+        if isinstance(paths, (str, Path)):
+            path_list = [str(paths)]
+        else:
+            path_list = [str(path) for path in paths]
+
+        if not path_list:
+            raise ValueError("set_input_files requires at least one path")
+
+        file_payloads = []
+        for path in path_list:
+            if not os.path.exists(path):
+                raise FileNotFoundError(path)
+            with open(path, "rb") as file_handle:
+                raw = file_handle.read()
+            file_payloads.append(
+                {
+                    "name": os.path.basename(path),
+                    "type": mimetypes.guess_type(path)[0] or "application/octet-stream",
+                    "data": base64.b64encode(raw).decode("ascii"),
+                }
+            )
+
+        selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
+        payload_json = json.dumps(file_payloads)
+        result = await self.evaluate(
+            f"""
+            (() => {{
+              const input = document.querySelector('{selector_escaped}');
+              if (!input) return JSON.stringify({{ ok: false, error: 'not-found' }});
+              if (!(input instanceof HTMLInputElement) || input.type !== 'file') {{
+                return JSON.stringify({{ ok: false, error: 'not-file-input' }});
+              }}
+              const payloads = {payload_json};
+              if (!input.multiple && payloads.length > 1) {{
+                return JSON.stringify({{ ok: false, error: 'multiple-not-supported' }});
+              }}
+              const transfer = new DataTransfer();
+              for (const item of payloads) {{
+                const binary = atob(item.data);
+                const bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                const file = new File([bytes], item.name, {{ type: item.type }});
+                transfer.items.add(file);
+              }}
+              input.files = transfer.files;
+              input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+              input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+              return JSON.stringify({{ ok: true, count: input.files.length }});
+            }})()
+            """
+        )
+
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except (json.JSONDecodeError, ValueError):
+                pass
+        if not isinstance(result, dict) or not result.get("ok"):
+            error = result.get("error") if isinstance(result, dict) else "unknown"
+            raise RuntimeError(f"set_input_files failed: {error}")
+        return int(result.get("count", 0))
+
     async def screenshot(self, path: Optional[str] = None) -> bytes:
         self._ensure_open()
         if self._bridge and self._bridge.is_connected:
@@ -1185,9 +1465,12 @@ class RDPPage:
         self._ensure_open()
         """Register a page event listener.
 
-        Supported events: load, domcontentloaded, framenavigated.
+        Supported events: load, domcontentloaded, framenavigated,
+        request, response, requestfinished, requestfailed.
         """
         self._event_listeners.setdefault(event, []).append(callback)
+        if event in {"request", "response", "requestfinished", "requestfailed"}:
+            self._loop.create_task(self._ensure_network_event_bridge())
         logger.debug("Event listener registered: %s", event)
 
     def remove_listener(self, event: str, callback) -> None:
@@ -2059,6 +2342,19 @@ class RDPBrowser:
             return None
         page = self._pages_by_tab_id.get(tab_id)
         return page if page and not page.is_closed() else None
+
+    async def wait_for_new_page(
+        self,
+        timeout: int = 5000,
+        existing_pages: Optional[List[RDPPage]] = None,
+    ) -> RDPPage:
+        previous_pages = existing_pages if existing_pages is not None else self.list_pages()
+        previous_tab_actor_ids = {page._tab_actor_id for page in previous_pages if not page.is_closed()}
+        new_tab_actor_id = await self._wait_for_new_tab_actor(
+            previous_tab_actor_ids,
+            timeout=timeout / 1000,
+        )
+        return self._build_page_from_tab(new_tab_actor_id, await self._get_active_tab_id())
 
     async def page_by_url(self, pattern: str) -> Optional[RDPPage]:
         for page in self.list_pages():
