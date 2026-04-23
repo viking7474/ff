@@ -1374,7 +1374,23 @@ class RDPPage:
     async def expect_popup(self, timeout: int = 5000) -> "RDPPage":
         self._ensure_open()
         existing_pages = self._browser.list_pages()
-        return await self._browser.wait_for_new_page(timeout=timeout, existing_pages=existing_pages)
+        try:
+            return await self._browser.wait_for_new_page(timeout=timeout, existing_pages=existing_pages)
+        except TimeoutError:
+            # Scheduling races can mean the popup/new page is already present by
+            # the time the wait task starts. Fall back to registry inspection.
+            active = await self._browser.get_active_page()
+            if active and active is not self and not active.is_closed():
+                return active
+
+            previous_ids = {page._tab_actor_id for page in existing_pages if not page.is_closed()}
+            current_pages = self._browser.list_pages()
+            for page in current_pages:
+                if page is self or page.is_closed():
+                    continue
+                if page._tab_actor_id not in previous_ids:
+                    return page
+            raise
 
     async def _enumerate_frames(self) -> List[Dict[str, Any]]:
         self._ensure_open()
