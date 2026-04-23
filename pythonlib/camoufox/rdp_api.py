@@ -297,6 +297,9 @@ class RDPFrame:
     def __init__(self, page: "RDPPage", metadata: Dict[str, Any]):
         self._page = page
         self.index = metadata.get("index", 0)
+        self.path = metadata.get("path", [self.index])
+        self.parent_path = metadata.get("parent_path")
+        self.depth = metadata.get("depth", len(self.path) - 1)
         self.name = metadata.get("name")
         self.id = metadata.get("id")
         self.src = metadata.get("src")
@@ -309,13 +312,28 @@ class RDPFrame:
 
     async def _frame_position(self) -> Dict[str, Any]:
         self._ensure_same_origin()
+        path_json = json.dumps(self.path)
         result = await self._page.evaluate(
             f"""
             (() => {{
-              const frame = document.querySelectorAll('iframe, frame')[{self.index}];
-              if (!frame) return JSON.stringify({{ ok: false, error: 'frame-not-found' }});
-              const r = frame.getBoundingClientRect();
-              return JSON.stringify({{ ok: true, x: r.x, y: r.y, w: r.width, h: r.height }});
+              const path = {path_json};
+              let doc = document;
+              let x = 0;
+              let y = 0;
+              let w = 0;
+              let h = 0;
+              for (const idx of path) {{
+                const frames = doc.querySelectorAll('iframe, frame');
+                const frame = frames[idx];
+                if (!frame) return JSON.stringify({{ ok: false, error: 'frame-not-found' }});
+                const r = frame.getBoundingClientRect();
+                x += r.x;
+                y += r.y;
+                w = r.width;
+                h = r.height;
+                doc = frame.contentWindow.document;
+              }}
+              return JSON.stringify({{ ok: true, x, y, w, h }});
             }})()
             """
         )
@@ -334,7 +352,7 @@ class RDPFrame:
         self._ensure_same_origin()
         selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
         element_rect = await self._page._frame_eval_body(
-            self.index,
+            self.path,
             f"""
             const el = doc.querySelector('{selector_escaped}');
             if (!el) return null;
@@ -359,7 +377,7 @@ class RDPFrame:
 
     async def evaluate(self, expression: str) -> Any:
         self._ensure_same_origin()
-        return await self._page._frame_evaluate(self.index, expression)
+        return await self._page._frame_evaluate(self.path, expression)
 
     async def wait_for_text(self, text: str, timeout: int = 5000) -> str:
         self._ensure_same_origin()
@@ -367,7 +385,7 @@ class RDPFrame:
         text_escaped = text.replace("\\", "\\\\").replace("'", "\\'")
         while time.time() < deadline:
             found = await self._page._frame_eval_body(
-                self.index,
+                self.path,
                 f"return !!(doc.body && doc.body.innerText.includes('{text_escaped}'));",
             )
             if found:
@@ -379,7 +397,7 @@ class RDPFrame:
         self._ensure_same_origin()
         selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
         result = await self._page._frame_eval_body(
-            self.index,
+            self.path,
             f"""
             const el = doc.querySelector('{selector_escaped}');
             if (!el) return null;
@@ -398,7 +416,7 @@ class RDPFrame:
         self._ensure_same_origin()
         selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
         return await self._page._frame_eval_body(
-            self.index,
+            self.path,
             f"""
             const el = doc.querySelector('{selector_escaped}');
             return el ? el.textContent : null;
@@ -409,7 +427,7 @@ class RDPFrame:
         self._ensure_same_origin()
         selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
         return await self._page._frame_eval_body(
-            self.index,
+            self.path,
             f"""
             const el = doc.querySelector('{selector_escaped}');
             return el ? el.innerText : null;
@@ -420,7 +438,7 @@ class RDPFrame:
         self._ensure_same_origin()
         selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
         return await self._page._frame_eval_body(
-            self.index,
+            self.path,
             f"""
             const el = doc.querySelector('{selector_escaped}');
             return el ? el.innerHTML : null;
@@ -443,7 +461,7 @@ class RDPFrame:
         self._ensure_same_origin()
         selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
         result = await self._page._frame_eval_body(
-            self.index,
+            self.path,
             f"return doc.querySelectorAll('{selector_escaped}').length;",
         )
         try:
@@ -459,7 +477,7 @@ class RDPFrame:
         self._ensure_same_origin()
         selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
         result = await self._page._frame_eval_body(
-            self.index,
+            self.path,
             f"""
             const el = doc.querySelector('{selector_escaped}');
             if (!el) return false;
@@ -484,7 +502,7 @@ class RDPFrame:
         deadline = time.time() + (timeout / 1000)
         while time.time() < deadline:
             result = await self._page._frame_eval_body(
-                self.index,
+                self.path,
                 f"""
                 const el = doc.querySelector('{selector_escaped}');
                 if ({json.dumps(state)} === 'hidden') {{
@@ -518,7 +536,7 @@ class RDPFrame:
         self._ensure_same_origin()
         selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
         exists = await self._page._frame_eval_body(
-            self.index,
+            self.path,
             f"""
             const el = doc.querySelector('{selector_escaped}');
             if (!el) return false;
@@ -536,7 +554,7 @@ class RDPFrame:
         if len(key) == 1:
             key_escaped = key.replace("\\", "\\\\").replace("'", "\\'")
             appended = await self._page._frame_eval_body(
-                self.index,
+                self.path,
                 f"""
                 const el = doc.querySelector('{selector_escaped}');
                 if (!el) return null;
@@ -560,6 +578,14 @@ class RDPFrame:
 
     def locator(self, selector: str) -> "_FrameLocator":
         return _FrameLocator(self, selector)
+
+    async def parent_frame(self) -> Optional["RDPFrame"]:
+        if not self.parent_path:
+            return None
+        return await self._page.frame(path=self.parent_path)
+
+    async def child_frames(self) -> List["RDPFrame"]:
+        return await self._page.child_frames(self.path)
 
 
 class RDPPage:
@@ -1397,27 +1423,42 @@ class RDPPage:
         result = await self.evaluate(
             """
             (() => {
-              const frames = Array.from(document.querySelectorAll('iframe, frame')).map((frame, index) => {
-                try {
-                  return {
-                    index,
-                    name: frame.name || null,
-                    id: frame.id || null,
-                    src: frame.getAttribute('src') || null,
-                    url: frame.contentWindow.location.href,
-                    same_origin: true,
-                  };
-                } catch (e) {
-                  return {
-                    index,
-                    name: frame.name || null,
-                    id: frame.id || null,
-                    src: frame.getAttribute('src') || null,
-                    url: null,
-                    same_origin: false,
-                  };
-                }
-              });
+              const out = [];
+              const walk = (doc, parentPath) => {
+                const frames = Array.from(doc.querySelectorAll('iframe, frame'));
+                frames.forEach((frame, index) => {
+                  const path = parentPath.concat(index);
+                  try {
+                    const childDoc = frame.contentWindow.document;
+                    out.push({
+                      index,
+                      path,
+                      parent_path: parentPath.length ? parentPath : null,
+                      depth: path.length - 1,
+                      name: frame.name || null,
+                      id: frame.id || null,
+                      src: frame.getAttribute('src') || null,
+                      url: frame.contentWindow.location.href,
+                      same_origin: true,
+                    });
+                    walk(childDoc, path);
+                  } catch (e) {
+                    out.push({
+                      index,
+                      path,
+                      parent_path: parentPath.length ? parentPath : null,
+                      depth: path.length - 1,
+                      name: frame.name || null,
+                      id: frame.id || null,
+                      src: frame.getAttribute('src') || null,
+                      url: null,
+                      same_origin: false,
+                    });
+                  }
+                });
+              };
+              walk(document, []);
+              const frames = out;
               return JSON.stringify(frames);
             })()
             """
@@ -1429,16 +1470,23 @@ class RDPPage:
                 return []
         return []
 
-    async def _frame_eval_body(self, index: int, body: str) -> Any:
+    async def _frame_eval_body(self, path: List[int], body: str) -> Any:
         self._ensure_open()
+        path_json = json.dumps(path)
         result = await self.evaluate(
             f"""
             (() => {{
-              const frame = document.querySelectorAll('iframe, frame')[{index}];
-              if (!frame) return JSON.stringify({{ ok: false, error: 'frame-not-found' }});
+              const path = {path_json};
               try {{
-                const win = frame.contentWindow;
-                const doc = win.document;
+                let frame = null;
+                let win = window;
+                let doc = document;
+                for (const idx of path) {{
+                  frame = doc.querySelectorAll('iframe, frame')[idx];
+                  if (!frame) return JSON.stringify({{ ok: false, error: 'frame-not-found' }});
+                  win = frame.contentWindow;
+                  doc = win.document;
+                }}
                 const result = (() => {{ {body} }})();
                 return JSON.stringify({{ ok: true, value: result }});
               }} catch (e) {{
@@ -1461,7 +1509,7 @@ class RDPPage:
                 return payload.get("value")
         return result
 
-    async def _frame_evaluate(self, index: int, expression: str) -> Any:
+    async def _frame_evaluate(self, path: List[int], expression: str) -> Any:
         self._ensure_open()
         expr = expression.strip()
         auto_called = False
@@ -1473,13 +1521,21 @@ class RDPPage:
             expr = f"({expr})()"
             auto_called = True
         expr_json = json.dumps(expr)
+        path_json = json.dumps(path)
         result = await self.evaluate(
             f"""
             (() => {{
-              const frame = document.querySelectorAll('iframe, frame')[{index}];
-              if (!frame) return JSON.stringify({{ ok: false, error: 'frame-not-found' }});
               try {{
-                const win = frame.contentWindow;
+                const path = {path_json};
+                let frame = null;
+                let win = window;
+                let doc = document;
+                for (const idx of path) {{
+                  frame = doc.querySelectorAll('iframe, frame')[idx];
+                  if (!frame) return JSON.stringify({{ ok: false, error: 'frame-not-found' }});
+                  win = frame.contentWindow;
+                  doc = win.document;
+                }}
                 let value = win.eval({expr_json});
                 if ({str(auto_called).lower()} && typeof value === 'object' && value !== null) {{
                   return JSON.stringify({{ ok: true, object: true, value: JSON.stringify(value) }});
@@ -1518,15 +1574,28 @@ class RDPPage:
         metadata = await self._enumerate_frames()
         return [RDPFrame(self, item) for item in metadata]
 
+    async def child_frames(self, path: Optional[List[int]] = None) -> List[RDPFrame]:
+        self._ensure_open()
+        parent_path = path if path is not None else []
+        frames = await self.frames()
+        children: List[RDPFrame] = []
+        for frame in frames:
+            if frame.parent_path == parent_path:
+                children.append(frame)
+        return children
+
     async def frame(
         self,
         index: Optional[int] = None,
         name: Optional[str] = None,
         url_contains: Optional[str] = None,
+        path: Optional[List[int]] = None,
     ) -> Optional[RDPFrame]:
         self._ensure_open()
         for frame in await self.frames():
             if index is not None and frame.index != index:
+                continue
+            if path is not None and frame.path != path:
                 continue
             if name is not None and frame.name != name:
                 continue
@@ -2718,14 +2787,14 @@ class _FrameLocator:
     async def text_content(self) -> Optional[str]:
         expr = self._selector_expr()
         return await self._frame._page._frame_eval_body(
-            self._frame.index,
+            self._frame.path,
             f"const el = {expr}; return el ? el.textContent : null;",
         )
 
     async def inner_text(self) -> Optional[str]:
         expr = self._selector_expr()
         return await self._frame._page._frame_eval_body(
-            self._frame.index,
+            self._frame.path,
             f"const el = {expr}; return el ? el.innerText : null;",
         )
 
@@ -2733,14 +2802,14 @@ class _FrameLocator:
         name_escaped = name.replace("\\", "\\\\").replace("'", "\\'")
         expr = self._selector_expr()
         return await self._frame._page._frame_eval_body(
-            self._frame.index,
+            self._frame.path,
             f"const el = {expr}; return el ? el.getAttribute('{name_escaped}') : null;",
         )
 
     async def count(self) -> int:
         sel = self._selector.replace("\\", "\\\\").replace("'", "\\'")
         result = await self._frame._page._frame_eval_body(
-            self._frame.index,
+            self._frame.path,
             f"return doc.querySelectorAll('{sel}').length;",
         )
         try:
@@ -2754,7 +2823,7 @@ class _FrameLocator:
     async def is_visible(self) -> bool:
         expr = self._selector_expr()
         result = await self._frame._page._frame_eval_body(
-            self._frame.index,
+            self._frame.path,
             f"""
             const el = {expr};
             if (!el) return false;

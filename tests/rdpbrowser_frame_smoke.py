@@ -35,7 +35,7 @@ async def main() -> None:
             (() => {
               const f1 = document.createElement('iframe');
               f1.name = 'sameOriginFrame';
-              f1.srcdoc = '<html><body><h1>Frame One</h1><a href="javascript:void(0)" id="frame-link">Link</a><input id="frame-input" /><script>window.__frameClicked=false; document.addEventListener("click", e => { if (e.target && e.target.id === "frame-link") window.__frameClicked = true; });</script></body></html>';
+              f1.srcdoc = '<html><body><h1>Frame One</h1><a href="javascript:void(0)" id="frame-link">Link</a><input id="frame-input" /><iframe name="nestedFrame" srcdoc="<html><body><p id=&quot;nested-text&quot;>Nested Frame</p></body></html>"></iframe><script>window.__frameClicked=false; document.addEventListener("click", e => { if (e.target && e.target.id === "frame-link") window.__frameClicked = true; });</script></body></html>';
               document.body.appendChild(f1);
 
               const f2 = document.createElement('iframe');
@@ -60,6 +60,9 @@ async def main() -> None:
                     "same_origin": frame.same_origin,
                 }
             )
+
+        root_children = await page.child_frames()
+        print("root child frames:", [f.name for f in root_children])
 
         frame0 = await page.frame(index=0)
         if not frame0:
@@ -106,6 +109,24 @@ async def main() -> None:
         named = await page.frame(name="sameOriginFrame")
         if not named or named.name != "sameOriginFrame":
             raise RuntimeError("Failed to resolve frame by name")
+
+        nested = await page.frame(name="nestedFrame")
+        if not nested:
+            raise RuntimeError("Failed to resolve nested frame by name")
+        print("nested frame metadata:", {"path": nested.path, "parent_path": nested.parent_path, "depth": nested.depth, "url": nested.url, "same_origin": nested.same_origin})
+        print("nested frame text:", await nested.text_content("#nested-text"))
+        print("nested frame wait_for_text:", await nested.wait_for_text("Nested Frame"))
+        by_path = await page.frame(path=nested.path)
+        if not by_path or by_path.path != nested.path:
+            raise RuntimeError("Failed to resolve nested frame by path")
+        nested_parent = await nested.parent_frame()
+        if not nested_parent or nested_parent.name != "sameOriginFrame":
+            raise RuntimeError("Failed to resolve nested frame parent")
+        print("nested parent frame:", nested_parent.name)
+        same_origin_children = await named.child_frames()
+        print("sameOriginFrame child frames:", [f.name for f in same_origin_children])
+        if not any(f.name == "nestedFrame" for f in same_origin_children):
+            raise RuntimeError("Failed to enumerate nested child frame from parent")
 
         cross = await page.frame(name="crossOriginFrame")
         if not cross:

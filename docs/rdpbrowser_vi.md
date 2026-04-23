@@ -207,29 +207,34 @@ Trong nhieu truong hop, `request`, `response`, va `requestfinished` co the doi c
 ## 13. Frames
 
 1. `await page.frames()` - liet ke cac frame/iframe hien co trong page.
-2. `await page.frame(index=..., name=..., url_contains=...)` - lay 1 frame theo index, name, hoac URL.
-3. `await frame.evaluate(expression)` - evaluate trong frame same-origin.
-4. `await frame.text_content(selector)` - lay text content trong frame same-origin.
-5. `await frame.inner_text(selector)` - lay innerText trong frame same-origin.
-6. `await frame.inner_html(selector)` - lay innerHTML trong frame same-origin.
-7. `await frame.get_attribute(selector, name)` - lay attribute trong frame same-origin.
-8. `await frame.count(selector)` - dem so phan tu trong frame same-origin.
-9. `await frame.exists(selector)` - kiem tra selector trong frame same-origin.
-10. `await frame.is_visible(selector)` - kiem tra visible trong frame same-origin.
-11. `await frame.is_hidden(selector)` - kiem tra hidden trong frame same-origin.
-12. `await frame.wait_for_text(text)` - doi text xuat hien trong frame same-origin.
-13. `await frame.wait_for_selector(selector)` - doi selector trong frame same-origin.
-14. `frame.locator(selector)` - tao locator ben trong frame same-origin.
-15. `await frame.hover(selector)` - dua chuot den phan tu trong frame same-origin.
-16. `await frame.click(selector)` - click phan tu trong frame same-origin.
-17. `await frame.focus(selector)` - focus phan tu trong frame same-origin.
-18. `await frame.press(selector, key)` - focus roi bam phim trong frame same-origin.
+2. `await page.child_frames(path=None)` - lay cac frame con truc tiep cua root page hoac cua mot frame path cu the.
+3. `await page.frame(index=..., name=..., url_contains=..., path=...)` - lay 1 frame theo index, name, URL, hoac frame path.
+4. `await frame.parent_frame()` - lay frame cha cua frame hien tai.
+5. `await frame.child_frames()` - lay cac frame con truc tiep cua frame hien tai.
+6. `await frame.evaluate(expression)` - evaluate trong frame same-origin.
+7. `await frame.text_content(selector)` - lay text content trong frame same-origin.
+8. `await frame.inner_text(selector)` - lay innerText trong frame same-origin.
+9. `await frame.inner_html(selector)` - lay innerHTML trong frame same-origin.
+10. `await frame.get_attribute(selector, name)` - lay attribute trong frame same-origin.
+11. `await frame.count(selector)` - dem so phan tu trong frame same-origin.
+12. `await frame.exists(selector)` - kiem tra selector trong frame same-origin.
+13. `await frame.is_visible(selector)` - kiem tra visible trong frame same-origin.
+14. `await frame.is_hidden(selector)` - kiem tra hidden trong frame same-origin.
+15. `await frame.wait_for_text(text)` - doi text xuat hien trong frame same-origin.
+16. `await frame.wait_for_selector(selector)` - doi selector trong frame same-origin.
+17. `frame.locator(selector)` - tao locator ben trong frame same-origin.
+18. `await frame.hover(selector)` - dua chuot den phan tu trong frame same-origin.
+19. `await frame.click(selector)` - click phan tu trong frame same-origin.
+20. `await frame.focus(selector)` - focus phan tu trong frame same-origin.
+21. `await frame.press(selector, key)` - focus roi bam phim trong frame same-origin.
 
 Gioi han hien tai:
 
 1. same-origin frame duoc ho tro cho DOM/evaluate helpers va interaction helpers co ban.
 2. cross-origin frame chi expose metadata.
 3. neu co gang DOM/evaluate vao cross-origin frame thi se bao loi ro rang.
+4. nested frame co the duoc lookup qua `path` trong frame model hien tai.
+5. da co frame tree helpers o muc co ban de lay parent/child frames.
 
 ## Ghi chu thuc te
 

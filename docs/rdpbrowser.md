@@ -429,19 +429,22 @@ Hardening additions in this repo now also include:
 Available APIs:
 
 1. `await page.frames()`
-2. `await page.frame(index=..., name=..., url_contains=...)`
-3. `await frame.evaluate(expression)`
-4. `await frame.text_content(selector)`
-5. `await frame.inner_text(selector)`
-6. `await frame.inner_html(selector)`
-7. `await frame.get_attribute(selector, name)`
-8. `await frame.count(selector)`
-9. `await frame.exists(selector)`
-10. `await frame.is_visible(selector)`
-11. `await frame.is_hidden(selector)`
-12. `await frame.wait_for_text(text)`
-13. `await frame.wait_for_selector(selector)`
-14. `frame.locator(selector)`
+2. `await page.child_frames(path=None)`
+3. `await page.frame(index=..., name=..., url_contains=..., path=...)`
+4. `await frame.parent_frame()`
+5. `await frame.child_frames()`
+6. `await frame.evaluate(expression)`
+7. `await frame.text_content(selector)`
+8. `await frame.inner_text(selector)`
+9. `await frame.inner_html(selector)`
+10. `await frame.get_attribute(selector, name)`
+11. `await frame.count(selector)`
+12. `await frame.exists(selector)`
+13. `await frame.is_visible(selector)`
+14. `await frame.is_hidden(selector)`
+15. `await frame.wait_for_text(text)`
+16. `await frame.wait_for_selector(selector)`
+17. `frame.locator(selector)`
 15. `await frame.hover(selector)`
 16. `await frame.click(selector)`
 17. `await frame.focus(selector)`
@@ -452,6 +455,8 @@ Current scope:
 1. same-origin frames are supported for DOM/evaluate helpers and basic interaction helpers
 2. cross-origin frames expose metadata only
 3. cross-origin frame DOM/evaluate access raises a clear runtime error
+4. nested frame paths are supported for same-origin frame lookup
+5. frame tree helpers are available through `page.child_frames()`, `frame.parent_frame()`, and `frame.child_frames()`
 
 Example:
 

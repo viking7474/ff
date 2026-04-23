@@ -156,7 +156,10 @@ Status values:
 | Capability | Status | Backend | Notes |
 |---|---|---|---|
 | `page.frames()` | ready | in-page frame enumeration | Smoke-covered |
-| `page.frame(index/name/url_contains)` | ready | metadata lookup | Smoke-covered |
+| `page.child_frames()` | ready | frame tree filtering by parent path | Smoke-covered |
+| `page.frame(index/name/url_contains/path)` | ready | metadata lookup | Smoke-covered |
+| `frame.parent_frame()` | ready | parent path lookup | Smoke-covered |
+| `frame.child_frames()` | ready | child path lookup | Smoke-covered |
 | `frame.text_content()` | ready | same-origin frame JS helper | Smoke-covered |
 | `frame.inner_text()` | ready | same-origin frame JS helper | Smoke-covered |
 | `frame.inner_html()` | ready | same-origin frame JS helper | Smoke-covered |
@@ -173,6 +176,7 @@ Status values:
 | `frame.focus()` | ready | same-origin frame JS helper | Smoke-covered |
 | `frame.press()` | ready | frame focus + keyboard press | Smoke-covered |
 | `frame.evaluate()` | partial | same-origin frame eval | Smoke-covered |
+| nested frame path lookup | ready | recursive metadata enumeration | Smoke-covered |
 | cross-origin frame metadata | ready | frame enumeration only | Smoke-covered |
 | cross-origin DOM/evaluate access | partial | explicit runtime error | By design |
 
