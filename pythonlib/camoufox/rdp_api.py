@@ -616,9 +616,6 @@ class RDPPage:
         if self._closed:
             raise RuntimeError("Page is closed")
 
-    async def _ensure_bridge_ready(self, timeout: float = 10.0) -> bool:
-        return await self._browser._ensure_bridge_connected(timeout=timeout)
-
     def _make_event_payload(self, event: str, name: str = "", url: str = "") -> Dict[str, Any]:
         return {
             "event": event,
@@ -1888,7 +1885,6 @@ class RDPPage:
 
     async def fill(self, selector: str, text: str) -> None:
         self._ensure_open()
-        await self._ensure_bridge_ready(timeout=5.0)
         await self.click(selector)
         await asyncio.sleep(0.1)
         # Clear existing value via DOM assignment first. The native keyPress
@@ -1915,23 +1911,8 @@ class RDPPage:
                 "type", {"tabId": self._tab_id, "text": text}
             )
         else:
-            # Practical fallback when the extension bridge is unavailable.
-            selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
-            text_escaped = text.replace("\\", "\\\\").replace("'", "\\'")
-            await self.evaluate(
-                f"""
-                (function() {{
-                  const el = document.querySelector('{selector_escaped}');
-                  if (!el) return false;
-                  if ('value' in el) {{
-                    el.value = '{text_escaped}';
-                    el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                    return true;
-                  }}
-                  return false;
-                }})()
-                """
+            raise ConnectionError(
+                "Extension bridge not connected, cannot fill with trusted events"
             )
 
     async def set_input_files(self, selector: str, paths) -> int:
@@ -2067,7 +2048,6 @@ class RDPPage:
         self._ensure_open()
         """Start capturing HTTP responses whose URL contains any of the patterns.
         Captured via extension filterResponseData (invisible to page JS)."""
-        await self._ensure_bridge_ready(timeout=5.0)
         if not self._bridge or not self._bridge.is_connected:
             raise ConnectionError("Extension bridge not connected")
         await self._bridge.send_command("startCapture", {"patterns": patterns})
@@ -2118,7 +2098,6 @@ class RDPPage:
         self._ensure_open()
         """Start spying on outgoing requests matching URL patterns.
         Captures request headers, body, and response body."""
-        await self._ensure_bridge_ready(timeout=5.0)
         if not self._bridge or not self._bridge.is_connected:
             raise ConnectionError("Extension bridge not connected")
         await self._bridge.send_command("startSpy", {"patterns": patterns})
@@ -2145,7 +2124,6 @@ class RDPPage:
 
     async def _apply_interception_rules(self) -> Dict[str, Any]:
         self._ensure_open()
-        await self._ensure_bridge_ready(timeout=5.0)
         if not self._bridge or not self._bridge.is_connected:
             raise ConnectionError("Extension bridge not connected")
         return await self._bridge.send_command(
@@ -2178,7 +2156,6 @@ class RDPPage:
         self._ensure_open()
         self._interception_block_patterns = []
         self._interception_header_rules = []
-        await self._ensure_bridge_ready(timeout=5.0)
         if not self._bridge or not self._bridge.is_connected:
             raise ConnectionError("Extension bridge not connected")
         return await self._bridge.send_command("clearInterception", {}, timeout=10)
@@ -3045,10 +3022,8 @@ class RDPBrowser:
         self._pages: List[RDPPage] = []
         self._pages_by_tab_actor: Dict[str, RDPPage] = {}
         self._pages_by_tab_id: Dict[int, RDPPage] = {}
-        self._bridge_repair_attempted = False
 
     async def _get_active_tab_id(self) -> Optional[int]:
-        await self._ensure_bridge_connected(timeout=5.0)
         if self._bridge and self._bridge.is_connected:
             try:
                 result = await self._bridge.send_command("getActiveTab", {}, timeout=3)
@@ -3123,7 +3098,6 @@ class RDPBrowser:
         return list(self._pages)
 
     async def get_active_page(self) -> Optional[RDPPage]:
-        await self._ensure_bridge_connected(timeout=5.0)
         if not self._bridge or not self._bridge.is_connected:
             return None
         try:
@@ -3140,7 +3114,6 @@ class RDPBrowser:
 
     async def save_state(self) -> Dict[str, Any]:
         state: Dict[str, Any] = {"cookies": [], "origins": []}
-        await self._ensure_bridge_connected(timeout=5.0)
         if self._bridge and self._bridge.is_connected:
             try:
                 result = await self._bridge.send_command("getCookies", {}, timeout=10)
@@ -3185,8 +3158,6 @@ class RDPBrowser:
         origins = state.get("origins", []) if isinstance(state, dict) else []
         cookies_set = 0
         origins_loaded = 0
-
-        await self._ensure_bridge_connected(timeout=5.0)
 
         if clear_existing:
             try:
@@ -3332,8 +3303,6 @@ class RDPBrowser:
         with open(bg_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        content = content.replace("let wsPort = 8775;", f"let wsPort = {self._ws_port};")
-
         proxy_js = (
             f"let proxyConfig = {{\n"
             f'  host: "{proxy_host}",\n'
@@ -3371,21 +3340,6 @@ class RDPBrowser:
         content = content.replace(
             "let proxyConfig = null;\nlet proxyCredentials = null;", proxy_js
         )
-        with open(bg_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        self._temp_dirs.append(ext_copy)
-        return ext_copy
-
-    def _prepare_extension_runtime(self) -> str:
-        """Copy extension to temp dir and inject runtime websocket port."""
-        ext_copy = os.path.join(self._profile_path, "_ext_runtime")
-        if os.path.exists(ext_copy):
-            shutil.rmtree(ext_copy)
-        shutil.copytree(EXTENSION_DIR, ext_copy)
-        bg_path = os.path.join(ext_copy, "background.js")
-        with open(bg_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        content = content.replace("let wsPort = 8775;", f"let wsPort = {self._ws_port};")
         with open(bg_path, "w", encoding="utf-8") as f:
             f.write(content)
         self._temp_dirs.append(ext_copy)
@@ -3577,7 +3531,7 @@ class RDPBrowser:
                         f"Extension install failed after {max_retries} attempts: {e}"
                     )
 
-    async def _wait_for_bridge(self, timeout: float = 10.0, warn: bool = True) -> None:
+    async def _wait_for_bridge(self, timeout: float = 10.0) -> None:
         """Wait for the extension WebSocket bridge to connect."""
         if not self._bridge:
             return
@@ -3587,35 +3541,7 @@ class RDPBrowser:
                 logger.info("Extension bridge connected")
                 return
             await asyncio.sleep(0.5)
-        if warn:
-            logger.warning(f"Extension bridge not connected after {timeout}s")
-
-    async def _ensure_bridge_connected(self, timeout: float = 10.0) -> bool:
-        if self._bridge and self._bridge.is_connected:
-            return True
-        if not self._bridge:
-            return False
-
-        try:
-            await self._wait_for_bridge(timeout=1.0, warn=False)
-        except Exception:
-            pass
-        if self._bridge.is_connected:
-            return True
-
-        # Retry extension installation once if the bridge still did not connect.
-        if not self._bridge_repair_attempted:
-            self._bridge_repair_attempted = True
-            try:
-                await self._install_extension(max_retries=1)
-            except Exception:
-                pass
-
-        try:
-            await self._wait_for_bridge(timeout=min(timeout, 2.0), warn=False)
-        except Exception:
-            pass
-        return bool(self._bridge and self._bridge.is_connected)
+        logger.warning(f"Extension bridge not connected after {timeout}s")
 
     async def _apply_overrides(self) -> None:
         """Apply timezone via window.setTimezone() WebIDL method (Camoufox built-in)."""
@@ -3665,8 +3591,6 @@ class RDPBrowser:
         if not self._client:
             raise RuntimeError("RDP client is not connected")
 
-        await self._ensure_bridge_connected(timeout=5.0)
-
         previous_tabs = await asyncio.to_thread(self._snapshot_tabs)
 
         # First page after launch: attach the existing startup tab. This keeps
@@ -3697,16 +3621,8 @@ class RDPBrowser:
                     except Exception:
                         pass
         elif previous_tabs:
-            # Fallback without extension bridge: open a new tab via window.open
-            # from the most recent live page if possible, then wait for a new
-            # tab actor. Only fall back to the startup tab if there is no page.
-            if self._pages:
-                try:
-                    await self._pages[-1].evaluate("window.open('about:blank', '_blank'); true")
-                    new_tab_actor_id = await self._wait_for_new_tab_actor(set(previous_tabs.keys()))
-                    return self._build_page_from_tab(new_tab_actor_id, None)
-                except Exception:
-                    pass
+            # Fallback for environments without extension support: attach to the
+            # first available tab instead of failing completely.
             first_actor = next(iter(previous_tabs))
             return self._build_page_from_tab(first_actor, None)
 
