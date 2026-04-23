@@ -35,7 +35,7 @@ async def main() -> None:
             (() => {
               const f1 = document.createElement('iframe');
               f1.name = 'sameOriginFrame';
-              f1.srcdoc = '<html><body><h1>Frame One</h1><a href="#" id="frame-link">Link</a><input id="frame-input" /><script>window.__frameClicked=false; document.addEventListener("click", e => { if (e.target && e.target.id === "frame-link") window.__frameClicked = true; });</script></body></html>';
+              f1.srcdoc = '<html><body><h1>Frame One</h1><a href="javascript:void(0)" id="frame-link">Link</a><input id="frame-input" /><script>window.__frameClicked=false; document.addEventListener("click", e => { if (e.target && e.target.id === "frame-link") window.__frameClicked = true; });</script></body></html>';
               document.body.appendChild(f1);
 
               const f2 = document.createElement('iframe');

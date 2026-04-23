@@ -507,6 +507,69 @@ async def test_network(reporter):
         await run_test(reporter, "stop_spy()", page.stop_spy())
 
 
+async def test_interception(reporter):
+    print("\n=== interception ===")
+    async with await make_browser(28, headless=False) as browser:
+        page = await browser.new_page()
+        await run_test(
+            reporter,
+            "page.set_extra_http_headers()",
+            page.set_extra_http_headers({"X-RDP-Test": "1"}, patterns=["example.com"]),
+        )
+        await run_test(reporter, "intercept start_spy()", page.start_spy(["example.com"]))
+        await page.goto("https://example.com")
+        await page.wait_for_load_state("load")
+        await asyncio.sleep(2)
+        requests = await run_test(reporter, "intercept get_spied_requests()", page.get_spied_requests())
+        if isinstance(requests, list) and requests:
+            header_seen = any(
+                isinstance(item.get("headers"), dict)
+                and item["headers"].get("X-RDP-Test") == "1"
+                for item in requests
+            )
+            reporter.add(
+                "header override observed",
+                "PASS" if header_seen else "FAIL",
+                f"requests={len(requests)}",
+            )
+        await run_test(reporter, "intercept stop_spy()", page.stop_spy())
+
+        failed = []
+
+        def on_failed(payload):
+            failed.append(payload)
+
+        page.on("requestfailed", on_failed)
+        await run_test(
+            reporter,
+            "page.set_request_block_patterns()",
+            page.set_request_block_patterns(["blocked-rdpbrowser-test"]),
+        )
+        await page.evaluate(
+            """
+            (() => {
+              const img = new Image();
+              img.src = 'https://example.com/blocked-rdpbrowser-test.png?' + Date.now();
+              document.body.appendChild(img);
+              return true;
+            })()
+            """
+        )
+        await asyncio.sleep(3)
+        reporter.add(
+            'blocked request observed',
+            "PASS" if len(failed) > 0 else "PARTIAL",
+            f"events={len(failed)}",
+        )
+        if failed:
+            reporter.add(
+                'blocked request error',
+                "PASS" if any(item.get("error") == "blocked_by_interception" for item in failed) else "FAIL",
+                str([item.get("error") for item in failed]),
+            )
+        await run_test(reporter, "page.clear_interception() after block", page.clear_interception())
+
+
 async def test_memory_and_gc(reporter):
     async with await make_browser(5, headless=False) as browser:
         page = await browser.new_page()
@@ -791,6 +854,7 @@ async def main():
     await test_reload_and_cookies(reporter)
     await test_storage_state(reporter)
     await test_network(reporter)
+    await test_interception(reporter)
     await test_memory_and_gc(reporter)
     await test_window_helpers(reporter)
     await test_multi_instance(reporter)

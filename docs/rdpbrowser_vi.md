@@ -142,7 +142,10 @@ asyncio.run(main())
 5. `await page.start_spy(patterns)` - bat request spy.
 6. `await page.stop_spy()` - tat request spy.
 7. `await page.get_spied_requests(clear=True|False)` - lay request da spy.
-8. `await page.wait_for_network_idle()` - doi network nhan roi.
+8. `await page.set_request_block_patterns(patterns)` - chan request theo substring URL.
+9. `await page.set_extra_http_headers(headers, patterns=None)` - override header request theo pattern URL.
+10. `await page.clear_interception()` - xoa interception rules hien tai.
+11. `await page.wait_for_network_idle()` - doi network nhan roi.
 
 ## 9. Diagnostics
 
@@ -235,7 +238,10 @@ Gioi han hien tai:
 3. Neu gap loi, xem them `docs/rdpbrowser_troubleshooting.md`.
 4. `save_state()` / `load_state()` hien tai tap trung vao cookies va `localStorage`, chua phai browser context parity day du.
 5. Repo hien da co hardening cho page-scoped storage state va file-based state round-trip.
-6. Upload file hien tai la practical path cho `<input type="file">`, chua phai native file chooser parity.
-7. Dialog hien tai la practical shim, chua phai native parity hoan chinh.
-8. Frame model hien tai tap trung vao same-origin iframe, chua phai full frame parity.
-9. Tai lieu dinh vi va so sanh voi Juggler nam o `docs/rdpbrowser_vs_juggler.md`.
+6. Interception hien tai moi o muc toi thieu: block request va override header, chua phai route/fulfill parity.
+7. Block rules va header rules hien duoc merge voi nhau, khong ghi de nhau.
+8. Request bi chan co the xuat hien duoi `requestfailed` voi `error="blocked_by_interception"`.
+9. Upload file hien tai la practical path cho `<input type="file">`, chua phai native file chooser parity.
+10. Dialog hien tai la practical shim, chua phai native parity hoan chinh.
+11. Frame model hien tai tap trung vao same-origin iframe, chua phai full frame parity.
+12. Tai lieu dinh vi va so sanh voi Juggler nam o `docs/rdpbrowser_vs_juggler.md`.

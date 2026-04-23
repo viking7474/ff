@@ -291,6 +291,15 @@ Receive practical request/response events built on top of the bridge spy/capture
 5. `page.on("requestfinished", callback)` / `page.on("requestfailed", callback)`
 Receive best-effort completion/failure events for observed requests.
 
+6. `await page.set_request_block_patterns(patterns)`
+Block requests whose URLs contain one of the given substrings.
+
+7. `await page.set_extra_http_headers(headers, patterns=None)`
+Apply practical request-header overrides for matching URL patterns.
+
+8. `await page.clear_interception()`
+Clear the current minimal interception rules.
+
 Typical event payloads now include:
 
 1. `requestId`
@@ -307,6 +316,18 @@ Typical event payloads now include:
 12. `page`
 
 The practical event bridge is designed so that `request`, `response`, and `requestfinished` can often be correlated through the same `requestId`.
+
+Current interception scope is intentionally small:
+
+1. block by URL substring pattern
+2. override request headers by URL substring pattern
+
+Current practical behavior:
+
+1. block and header rules are merged instead of overwriting each other
+2. blocked requests may appear through `requestfailed` with `error="blocked_by_interception"`
+
+It is not yet full route/fulfill/continue parity.
 
 6. `await page.memory_usage()`
 Read the current tab's memory metrics.

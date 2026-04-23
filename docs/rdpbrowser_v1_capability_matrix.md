@@ -104,6 +104,9 @@ Status values:
 | captured responses | ready | extension bridge | Smoke-validated |
 | start/stop spy | ready | extension `webRequest` | Smoke-validated |
 | spied requests | ready | extension bridge | Smoke-validated |
+| `set_request_block_patterns()` | partial | extension `onBeforeRequest` | Smoke-covered |
+| `set_extra_http_headers()` | partial | extension `onBeforeSendHeaders` | Smoke-covered |
+| `clear_interception()` | partial | extension interception reset | Smoke-covered |
 
 ## Diagnostics and State
 

@@ -24,6 +24,146 @@ let requestEvents = [];       // request-start events
 const MAX_SPY = 100;
 const MAX_REQUEST_EVENTS = 200;
 
+// --- Minimal interception ---
+let interceptBlockPatterns = [];
+let interceptHeaderRules = []; // [{patterns: [...], headers: {...}}]
+
+function setupInterceptionListeners() {
+  if (browser.webRequest.onBeforeRequest.hasListener(onInterceptRequest)) {
+    browser.webRequest.onBeforeRequest.removeListener(onInterceptRequest);
+  }
+  if (browser.webRequest.onBeforeSendHeaders.hasListener(onInterceptHeaders)) {
+    browser.webRequest.onBeforeSendHeaders.removeListener(onInterceptHeaders);
+  }
+
+  if (interceptBlockPatterns.length > 0) {
+    browser.webRequest.onBeforeRequest.addListener(
+      onInterceptRequest,
+      { urls: ["<all_urls>"] },
+      ["blocking"]
+    );
+  }
+
+  if (interceptHeaderRules.length > 0) {
+    browser.webRequest.onBeforeSendHeaders.addListener(
+      onInterceptHeaders,
+      { urls: ["<all_urls>"] },
+      ["blocking", "requestHeaders"]
+    );
+  }
+}
+
+function onInterceptRequest(details) {
+  if (interceptBlockPatterns.some(p => details.url.includes(p))) {
+    const blockedEntry = {
+      requestId: details.requestId,
+      url: details.url,
+      method: details.method || "GET",
+      body: null,
+      headers: null,
+      responseHeaders: null,
+      responseBody: null,
+      status: null,
+      error: "blocked_by_interception",
+      state: "failed",
+      timestamp: Date.now(),
+    };
+    requestEvents.push({ ...blockedEntry, state: "request" });
+    if (requestEvents.length > MAX_REQUEST_EVENTS) {
+      requestEvents = requestEvents.slice(-MAX_REQUEST_EVENTS);
+    }
+    spyResults.push(blockedEntry);
+    if (spyResults.length > MAX_SPY) {
+      spyResults = spyResults.slice(-MAX_SPY);
+    }
+    return { cancel: true };
+  }
+  return {};
+}
+
+function onInterceptHeaders(details) {
+  let requestHeaders = details.requestHeaders || [];
+  let changed = false;
+  for (const rule of interceptHeaderRules) {
+    const patterns = rule.patterns || [];
+    if (!patterns.some(p => details.url.includes(p))) continue;
+    const headers = rule.headers || {};
+    for (const [name, value] of Object.entries(headers)) {
+      const existing = requestHeaders.find(h => h.name.toLowerCase() === String(name).toLowerCase());
+      if (existing) {
+        existing.value = String(value);
+      } else {
+        requestHeaders.push({ name: String(name), value: String(value) });
+      }
+      changed = true;
+    }
+  }
+  return changed ? { requestHeaders } : {};
+}
+
+// --- Minimal request interception ---
+let interceptBlockPatterns = [];
+let interceptHeaderRules = []; // [{ patterns: [...], headers: {...} }]
+
+function setupInterceptionListeners() {
+  if (browser.webRequest.onBeforeRequest.hasListener(onInterceptRequest)) {
+    browser.webRequest.onBeforeRequest.removeListener(onInterceptRequest);
+  }
+  if (browser.webRequest.onBeforeSendHeaders.hasListener(onInterceptHeaders)) {
+    browser.webRequest.onBeforeSendHeaders.removeListener(onInterceptHeaders);
+  }
+
+  const needsRequest = interceptBlockPatterns.length > 0;
+  const needsHeaders = interceptHeaderRules.length > 0;
+
+  if (needsRequest) {
+    browser.webRequest.onBeforeRequest.addListener(
+      onInterceptRequest,
+      { urls: ["<all_urls>"] },
+      ["blocking"]
+    );
+  }
+
+  if (needsHeaders) {
+    browser.webRequest.onBeforeSendHeaders.addListener(
+      onInterceptHeaders,
+      { urls: ["<all_urls>"] },
+      ["blocking", "requestHeaders"]
+    );
+  }
+}
+
+function onInterceptRequest(details) {
+  if (interceptBlockPatterns.some(p => details.url.includes(p))) {
+    return { cancel: true };
+  }
+  return {};
+}
+
+function onInterceptHeaders(details) {
+  let requestHeaders = details.requestHeaders || [];
+  let changed = false;
+
+  for (const rule of interceptHeaderRules) {
+    const patterns = rule.patterns || [];
+    const headers = rule.headers || {};
+    if (!patterns.some(p => details.url.includes(p))) {
+      continue;
+    }
+    for (const [name, value] of Object.entries(headers)) {
+      const existing = requestHeaders.find(h => h.name.toLowerCase() === String(name).toLowerCase());
+      if (existing) {
+        existing.value = String(value);
+      } else {
+        requestHeaders.push({ name: String(name), value: String(value) });
+      }
+      changed = true;
+    }
+  }
+
+  return changed ? { requestHeaders } : {};
+}
+
 function setupCaptureListener() {
   // Remove existing listener if any
   if (browser.webRequest.onBeforeRequest.hasListener(onBeforeRequestCapture)) {
@@ -418,6 +558,42 @@ function connect() {
           requestEvents = [];
           setupSpyListeners();
           result = { ok: true, patterns: spyPatterns };
+          break;
+
+        case "setInterception":
+          interceptBlockPatterns = params.blockPatterns || [];
+          interceptHeaderRules = params.headerRules || [];
+          setupInterceptionListeners();
+          result = {
+            ok: true,
+            blockPatterns: interceptBlockPatterns,
+            headerRules: interceptHeaderRules,
+          };
+          break;
+
+        case "clearInterception":
+          interceptBlockPatterns = [];
+          interceptHeaderRules = [];
+          setupInterceptionListeners();
+          result = { ok: true };
+          break;
+
+        case "setInterception":
+          interceptBlockPatterns = params.blockPatterns || [];
+          interceptHeaderRules = params.headerRules || [];
+          setupInterceptionListeners();
+          result = {
+            ok: true,
+            blockPatterns: interceptBlockPatterns,
+            headerRules: interceptHeaderRules,
+          };
+          break;
+
+        case "clearInterception":
+          interceptBlockPatterns = [];
+          interceptHeaderRules = [];
+          setupInterceptionListeners();
+          result = { ok: true };
           break;
 
         case "stopSpy":

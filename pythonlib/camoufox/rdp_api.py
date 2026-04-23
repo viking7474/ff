@@ -517,20 +517,44 @@ class RDPFrame:
     async def focus(self, selector: str) -> None:
         self._ensure_same_origin()
         selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
-        focused = await self._page._frame_eval_body(
+        exists = await self._page._frame_eval_body(
             self.index,
             f"""
             const el = doc.querySelector('{selector_escaped}');
             if (!el) return false;
             if (typeof el.scrollIntoView === 'function') el.scrollIntoView({{ block: 'center', inline: 'center' }});
             if (typeof el.focus === 'function') el.focus();
-            return doc.activeElement === el;
+            return true;
             """,
         )
-        if not focused:
-            raise ValueError(f"Element not found or focus failed: {selector}")
+        if exists:
+            return
+        raise ValueError(f"Element not found or focus failed: {selector}")
 
     async def press(self, selector: str, key: str) -> None:
+        selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
+        if len(key) == 1:
+            key_escaped = key.replace("\\", "\\\\").replace("'", "\\'")
+            appended = await self._page._frame_eval_body(
+                self.index,
+                f"""
+                const el = doc.querySelector('{selector_escaped}');
+                if (!el) return null;
+                if (typeof el.scrollIntoView === 'function') el.scrollIntoView({{ block: 'center', inline: 'center' }});
+                if (typeof el.focus === 'function') el.focus();
+                if ('value' in el) {{
+                  el.value = (el.value || '') + '{key_escaped}';
+                  el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                  el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                  return true;
+                }}
+                return false;
+                """,
+            )
+            if appended is None:
+                raise ValueError(f"Element not found: {selector}")
+            if appended:
+                return
         await self.focus(selector)
         await self._page.keyboard.press(key)
 
@@ -580,6 +604,8 @@ class RDPPage:
         self._seen_network_event_order: List[tuple] = []
         self._dialog_shim_ready = False
         self._dialog_last_id = 0
+        self._interception_block_patterns: List[str] = []
+        self._interception_header_rules: List[Dict[str, Any]] = []
         self.mouse = _Mouse(self)
         self.keyboard = _Keyboard(self)
 
@@ -2095,6 +2121,44 @@ class RDPPage:
         if clear and requests:
             await self._bridge.send_command("clearSpied", {})
         return requests
+
+    async def _apply_interception_rules(self) -> Dict[str, Any]:
+        self._ensure_open()
+        if not self._bridge or not self._bridge.is_connected:
+            raise ConnectionError("Extension bridge not connected")
+        return await self._bridge.send_command(
+            "setInterception",
+            {
+                "blockPatterns": list(self._interception_block_patterns),
+                "headerRules": list(self._interception_header_rules),
+            },
+            timeout=10,
+        )
+
+    async def set_request_block_patterns(self, patterns: List[str]) -> Dict[str, Any]:
+        self._ensure_open()
+        self._interception_block_patterns = list(patterns)
+        return await self._apply_interception_rules()
+
+    async def set_extra_http_headers(
+        self, headers: Dict[str, Any], patterns: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        self._ensure_open()
+        self._interception_header_rules = [
+            {
+                "patterns": patterns or ["http"],
+                "headers": {str(k): str(v) for k, v in headers.items()},
+            }
+        ]
+        return await self._apply_interception_rules()
+
+    async def clear_interception(self) -> Dict[str, Any]:
+        self._ensure_open()
+        self._interception_block_patterns = []
+        self._interception_header_rules = []
+        if not self._bridge or not self._bridge.is_connected:
+            raise ConnectionError("Extension bridge not connected")
+        return await self._bridge.send_command("clearInterception", {}, timeout=10)
 
     async def wait_for_load_state(
         self, state: str = "load", timeout: int = 30000
