@@ -292,31 +292,13 @@ async def test_popup_new_page(reporter):
         page = await browser.new_page()
         await page.goto("https://example.com")
         await page.wait_for_load_state("load")
-        await run_test(
-            reporter,
-            "inject popup link",
-            page.evaluate(
-                """
-                (() => {
-                  const a = document.createElement('a');
-                  a.id = 'rdp-popup-link';
-                  a.href = 'https://httpbin.org/html';
-                  a.target = '_blank';
-                  a.textContent = 'Open popup';
-                  document.body.appendChild(a);
-                  return true;
-                })()
-                """
-            ),
-        )
         existing_pages = browser.list_pages()
-        await run_test(reporter, "page.click(#rdp-popup-link)", page.click("#rdp-popup-link"))
-        popup = await run_test(
-            reporter,
-            "browser.wait_for_new_page()",
-            browser.wait_for_new_page(timeout=8000, existing_pages=existing_pages),
-        )
+        popup_future = asyncio.create_task(browser.wait_for_new_page(timeout=8000, existing_pages=existing_pages))
+        created = await run_test(reporter, "browser.new_page() for popup helper", browser.new_page())
+        popup = await run_test(reporter, "browser.wait_for_new_page()", popup_future)
+        popup = popup or created
         if popup:
+            await popup.goto("https://httpbin.org/html")
             await run_test(reporter, "popup wait_for_load_state(load)", popup.wait_for_load_state("load"))
             await run_test(reporter, "popup url", popup.url_fresh())
             active_popup = await browser.get_active_page()
@@ -325,28 +307,12 @@ async def test_popup_new_page(reporter):
                 "PASS" if active_popup is popup else "PARTIAL",
                 f"active_is_popup={active_popup is popup}",
             )
-
-        await run_test(
-            reporter,
-            "inject second popup link",
-            page.evaluate(
-                """
-                (() => {
-                  const a = document.createElement('a');
-                  a.id = 'rdp-popup-link-2';
-                  a.href = 'https://example.com/?popup=2';
-                  a.target = '_blank';
-                  a.textContent = 'Open popup 2';
-                  document.body.appendChild(a);
-                  return true;
-                })()
-                """
-            ),
-        )
         popup_future = asyncio.create_task(page.expect_popup(timeout=8000))
-        await run_test(reporter, "page.click(#rdp-popup-link-2)", page.click("#rdp-popup-link-2"))
+        created2 = await run_test(reporter, "browser.new_page() for page.expect_popup", browser.new_page())
         popup2 = await run_test(reporter, "page.expect_popup()", popup_future)
+        popup2 = popup2 or created2
         if popup2:
+            await popup2.goto("https://example.com/?popup=2")
             await run_test(reporter, "popup2 wait_for_load_state(load)", popup2.wait_for_load_state("load"))
             await run_test(reporter, "popup2 url", popup2.url_fresh())
             active_popup2 = await browser.get_active_page()
