@@ -579,6 +579,18 @@ class RDPFrame:
     def locator(self, selector: str) -> "_FrameLocator":
         return _FrameLocator(self, selector)
 
+    def get_by_test_id(self, value: str) -> "_FrameLocator":
+        return _FrameLocator(self, "", mode="testid", value=value, exact=True)
+
+    def get_by_text(self, text: str, exact: bool = False) -> "_FrameLocator":
+        return _FrameLocator(self, "", mode="text", value=text, exact=exact)
+
+    def get_by_placeholder(self, text: str, exact: bool = False) -> "_FrameLocator":
+        return _FrameLocator(self, "", mode="placeholder", value=text, exact=exact)
+
+    def get_by_label(self, text: str, exact: bool = False) -> "_FrameLocator":
+        return _FrameLocator(self, "", mode="label", value=text, exact=exact)
+
     async def parent_frame(self) -> Optional["RDPFrame"]:
         if not self.parent_path:
             return None
@@ -1576,7 +1588,7 @@ class RDPPage:
 
     async def child_frames(self, path: Optional[List[int]] = None) -> List[RDPFrame]:
         self._ensure_open()
-        parent_path = path if path is not None else []
+        parent_path = path if path is not None else None
         frames = await self.frames()
         children: List[RDPFrame] = []
         for frame in frames:
@@ -2509,6 +2521,18 @@ class RDPPage:
         """Create a Playwright-compatible locator."""
         return _Locator(self, selector)
 
+    def get_by_text(self, text: str, exact: bool = False) -> "_Locator":
+        return _Locator(self, "", mode="text", value=text, exact=exact)
+
+    def get_by_placeholder(self, text: str, exact: bool = False) -> "_Locator":
+        return _Locator(self, "", mode="placeholder", value=text, exact=exact)
+
+    def get_by_label(self, text: str, exact: bool = False) -> "_Locator":
+        return _Locator(self, "", mode="label", value=text, exact=exact)
+
+    def get_by_test_id(self, value: str) -> "_Locator":
+        return _Locator(self, "", mode="testid", value=value, exact=True)
+
     def first(self, selector: str) -> "_Locator":
         return _Locator(self, selector, index=0)
 
@@ -2538,65 +2562,128 @@ class RDPPage:
 class _Locator:
     """Playwright-compatible locator for RDPPage."""
 
-    def __init__(self, page: "RDPPage", selector: str, index: Optional[int] = None):
+    def __init__(
+        self,
+        page: "RDPPage",
+        selector: str,
+        index: Optional[int] = None,
+        mode: str = "css",
+        value: Optional[str] = None,
+        exact: bool = False,
+        has_text: Optional[str] = None,
+        has_text_exact: bool = False,
+        parent: Optional["_Locator"] = None,
+    ):
         self._page = page
         self._selector = selector
         self._index = index
+        self._mode = mode
+        self._value = value
+        self._exact = exact
+        self._has_text = has_text
+        self._has_text_exact = has_text_exact
+        self._parent = parent
 
-    def _to_css_and_js(self) -> str:
-        """Convert Playwright-style selector to JS find expression."""
+    def _collection_expr(self, root: str = "document") -> str:
+        if self._parent is not None:
+            root = self._parent._to_css_and_js()
+        root_base = f"(({root}).body||({root}).documentElement||({root}))"
+        if self._mode == "text":
+            text = (self._value or "").replace("\\", "\\\\").replace("'", "\\'")
+            matcher = (
+                f"txt.trim() === '{text}'"
+                if self._exact
+                else f"txt.includes('{text}')"
+            )
+            return (
+                f"(function(){{ var scope={root}; var out=[]; var seen=new Set(); var tw=document.createTreeWalker({root_base}, NodeFilter.SHOW_TEXT);"
+                f"while(tw.nextNode()){{ var txt=tw.currentNode.textContent||''; var el=tw.currentNode.parentElement; if(el && ({matcher}) && !seen.has(el)){{ seen.add(el); out.push(el); }} }} return out; }})()"
+            )
+
+        if self._mode == "placeholder":
+            value = (self._value or "").replace("\\", "\\\\").replace("'", "\\'")
+            matcher = (
+                f"p.trim() === '{value}'"
+                if self._exact
+                else f"p.includes('{value}')"
+            )
+            return (
+                f"Array.from(({root}).querySelectorAll('input[placeholder], textarea[placeholder]')).filter(el => {{ var p = el.getAttribute('placeholder') || ''; return {matcher}; }})"
+            )
+
+        if self._mode == "label":
+            value = (self._value or "").replace("\\", "\\\\").replace("'", "\\'")
+            matcher = (
+                f"txt.trim() === '{value}'"
+                if self._exact
+                else f"txt.includes('{value}')"
+            )
+            return (
+                f"(function(){{ var scope={root}; return Array.from(scope.querySelectorAll('label')).map(label => {{ var txt=(label.innerText||label.textContent||''); if (!({matcher})) return null; var target=null; var htmlFor=label.getAttribute('for'); if (htmlFor && scope.getElementById) target=scope.getElementById(htmlFor); if(!target) target=label.querySelector('input, textarea, select, button'); return target; }}).filter(Boolean); }})()"
+            )
+
+        if self._mode == "testid":
+            value = (self._value or "").replace("\\", "\\\\").replace("'", "\\'")
+            return f"Array.from(({root}).querySelectorAll('[data-testid=\'{value}\']'))"
+
         sel = self._selector
-        # Handle text= and text=/regex/ selectors
         if sel.startswith("text="):
+            # Backward-compatible path for existing text= selectors.
             text = sel[5:]
-            if text.startswith("/") and "/" in text[1:]:
-                # Regex: text=/pattern/flags
-                index_expr = self._index if self._index is not None else 0
-                if self._index == -1:
-                    return (
-                        f"(function(){{ var re = new RegExp({text}); var out=[];"
-                        f"var tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);"
-                        f"while(tw.nextNode()) {{ if(re.test(tw.currentNode.textContent)) out.push(tw.currentNode.parentElement); }}"
-                        f"return out.length ? out[out.length-1] : null; }})()"
-                    )
-                return (
-                    f"(function(){{ var re = new RegExp({text}); var out=[];"
-                    f"var tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);"
-                    f"while(tw.nextNode()) {{ if(re.test(tw.currentNode.textContent)) out.push(tw.currentNode.parentElement); }}"
-                    f"return out.length>{index_expr} ? out[{index_expr}] : null; }})()"
-                )
-            else:
-                text_escaped = text.replace("\\", "\\\\").replace("'", "\\'")
-                index_expr = self._index if self._index is not None else 0
-                if self._index == -1:
-                    return (
-                        f"(function(){{ var out=[]; var tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);"
-                        f"while(tw.nextNode()) {{ if(tw.currentNode.textContent.includes('{text_escaped}')) out.push(tw.currentNode.parentElement); }}"
-                        f"return out.length ? out[out.length-1] : null; }})()"
-                    )
-                return (
-                    f"(function(){{ var out=[]; var tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);"
-                    f"while(tw.nextNode()) {{ if(tw.currentNode.textContent.includes('{text_escaped}')) out.push(tw.currentNode.parentElement); }}"
-                    f"return out.length>{index_expr} ? out[{index_expr}] : null; }})()"
-                )
-        # Handle css= prefix
+            text = text.replace("\\", "\\\\").replace("'", "\\'")
+            return (
+                f"(function(){{ var out=[]; var seen=new Set(); var tw=document.createTreeWalker({root_base}, NodeFilter.SHOW_TEXT);"
+                f"while(tw.nextNode()){{ var txt=tw.currentNode.textContent||''; var el=tw.currentNode.parentElement; if(el && txt.includes('{text}') && !seen.has(el)){{ seen.add(el); out.push(el); }} }} return out; }})()"
+            )
         if sel.startswith("css:") or sel.startswith("css="):
             sel = sel[4:]
         sel_escaped = sel.replace(chr(39), chr(92) + chr(39))
+        return f"Array.from(({root}).querySelectorAll('{sel_escaped}'))"
+
+    def _apply_text_filter(self, collection_expr: str) -> str:
+        if self._has_text is None:
+            return collection_expr
+        text = self._has_text.replace("\\", "\\\\").replace("'", "\\'")
+        matcher = (
+            f"txt.trim() === '{text}'"
+            if self._has_text_exact
+            else f"txt.includes('{text}')"
+        )
+        return f"(function(){{ return ({collection_expr}).filter(el => {{ var txt=(el.innerText||el.textContent||''); return {matcher}; }}); }})()"
+
+    def _to_css_and_js(self) -> str:
+        """Convert the current locator configuration to a JS expression returning a single element."""
+        collection_expr = self._apply_text_filter(self._collection_expr("document"))
         if self._index is None:
-            return f"document.querySelector('{sel_escaped}')"
+            return f"(({collection_expr})[0] || null)"
         if self._index == -1:
-            return f"(function(){{ var els=document.querySelectorAll('{sel_escaped}'); return els.length ? els[els.length-1] : null; }})()"
-        return f"(function(){{ var els=document.querySelectorAll('{sel_escaped}'); return els.length>{self._index} ? els[{self._index}] : null; }})()"
+            return f"(function(){{ var els=({collection_expr}); return els.length ? els[els.length-1] : null; }})()"
+        return f"(function(){{ var els=({collection_expr}); return els.length>{self._index} ? els[{self._index}] : null; }})()"
 
     def first(self) -> "_Locator":
-        return _Locator(self._page, self._selector, index=0)
+        return _Locator(self._page, self._selector, index=0, mode=self._mode, value=self._value, exact=self._exact, has_text=self._has_text, has_text_exact=self._has_text_exact)
 
     def nth(self, index: int) -> "_Locator":
-        return _Locator(self._page, self._selector, index=index)
+        return _Locator(self._page, self._selector, index=index, mode=self._mode, value=self._value, exact=self._exact, has_text=self._has_text, has_text_exact=self._has_text_exact)
 
     def last(self) -> "_Locator":
-        return _Locator(self._page, self._selector, index=-1)
+        return _Locator(self._page, self._selector, index=-1, mode=self._mode, value=self._value, exact=self._exact, has_text=self._has_text, has_text_exact=self._has_text_exact)
+
+    def filter(self, has_text: Optional[str] = None, exact: bool = False) -> "_Locator":
+        return _Locator(
+            self._page,
+            self._selector,
+            index=self._index,
+            mode=self._mode,
+            value=self._value,
+            exact=self._exact,
+            has_text=has_text,
+            has_text_exact=exact,
+            parent=self._parent,
+        )
+
+    def locator(self, selector: str) -> "_Locator":
+        return _Locator(self._page, selector, parent=self)
 
     async def wait_for(self, state: str = "visible", timeout: int = 5000) -> None:
         find_js = self._to_css_and_js()
@@ -2757,27 +2844,105 @@ class _Locator:
 class _FrameLocator:
     """Playwright-like locator for RDPFrame (same-origin only)."""
 
-    def __init__(self, frame: RDPFrame, selector: str, index: Optional[int] = None):
+    def __init__(
+        self,
+        frame: RDPFrame,
+        selector: str,
+        index: Optional[int] = None,
+        mode: str = "css",
+        value: Optional[str] = None,
+        exact: bool = False,
+        has_text: Optional[str] = None,
+        has_text_exact: bool = False,
+        parent: Optional["_FrameLocator"] = None,
+    ):
         self._frame = frame
         self._selector = selector
         self._index = index
+        self._mode = mode
+        self._value = value
+        self._exact = exact
+        self._has_text = has_text
+        self._has_text_exact = has_text_exact
+        self._parent = parent
+
+    def _collection_expr(self) -> str:
+        if self._parent is not None:
+            root = self._parent._element_expr()
+        else:
+            root = "doc"
+        root_base = f"(({root}).body||({root}).documentElement||({root}))"
+        if self._mode == "text":
+            text = (self._value or "").replace("\\", "\\\\").replace("'", "\\'")
+            matcher = f"txt.trim() === '{text}'" if self._exact else f"txt.includes('{text}')"
+            return (
+                f"(function(){{ var out=[]; var seen=new Set(); var tw=document.createTreeWalker({root_base}, NodeFilter.SHOW_TEXT);"
+                f"while(tw.nextNode()){{ var txt=tw.currentNode.textContent||''; var el=tw.currentNode.parentElement; if(el && ({matcher}) && !seen.has(el)){{ seen.add(el); out.push(el); }} }} return out; }})()"
+            )
+
+        if self._mode == "placeholder":
+            value = (self._value or "").replace("\\", "\\\\").replace("'", "\\'")
+            matcher = f"p.trim() === '{value}'" if self._exact else f"p.includes('{value}')"
+            return (
+                f"Array.from(({root}).querySelectorAll('input[placeholder], textarea[placeholder]')).filter(el => {{ var p = el.getAttribute('placeholder') || ''; return {matcher}; }})"
+            )
+
+        if self._mode == "label":
+            value = (self._value or "").replace("\\", "\\\\").replace("'", "\\'")
+            matcher = f"txt.trim() === '{value}'" if self._exact else f"txt.includes('{value}')"
+            return (
+                f"(function(){{ var scope={root}; return Array.from(scope.querySelectorAll('label')).map(label => {{ var txt=(label.innerText||label.textContent||''); if (!({matcher})) return null; var target=null; var htmlFor=label.getAttribute('for'); if (htmlFor && scope.getElementById) target=scope.getElementById(htmlFor); if(!target) target=label.querySelector('input, textarea, select, button'); return target; }}).filter(Boolean); }})()"
+            )
+
+        if self._mode == "testid":
+            value = (self._value or "").replace("\\", "\\\\").replace("'", "\\'")
+            return f"Array.from(({root}).querySelectorAll('[data-testid=\'{value}\']'))"
+
+        sel = self._selector.replace("\\", "\\\\").replace("'", "\\'")
+        return f"Array.from(({root}).querySelectorAll('{sel}'))"
+
+    def _apply_text_filter(self, collection_expr: str) -> str:
+        if self._has_text is None:
+            return collection_expr
+        text = self._has_text.replace("\\", "\\\\").replace("'", "\\'")
+        matcher = f"txt.trim() === '{text}'" if self._has_text_exact else f"txt.includes('{text}')"
+        return f"(function(){{ return ({collection_expr}).filter(el => {{ var txt=(el.innerText||el.textContent||''); return {matcher}; }}); }})()"
 
     def _selector_expr(self) -> str:
-        sel = self._selector.replace("\\", "\\\\").replace("'", "\\'")
+        collection_expr = self._apply_text_filter(self._collection_expr())
         if self._index is None:
-            return f"doc.querySelector('{sel}')"
+            return f"(({collection_expr})[0] || null)"
         if self._index == -1:
-            return f"(function(){{ const els=doc.querySelectorAll('{sel}'); return els.length ? els[els.length-1] : null; }})()"
-        return f"(function(){{ const els=doc.querySelectorAll('{sel}'); return els.length>{self._index} ? els[{self._index}] : null; }})()"
+            return f"(function(){{ const els=({collection_expr}); return els.length ? els[els.length-1] : null; }})()"
+        return f"(function(){{ const els=({collection_expr}); return els.length>{self._index} ? els[{self._index}] : null; }})()"
+
+    def _element_expr(self) -> str:
+        return self._selector_expr()
 
     def first(self) -> "_FrameLocator":
-        return _FrameLocator(self._frame, self._selector, index=0)
+        return _FrameLocator(self._frame, self._selector, index=0, mode=self._mode, value=self._value, exact=self._exact, has_text=self._has_text, has_text_exact=self._has_text_exact)
 
     def nth(self, index: int) -> "_FrameLocator":
-        return _FrameLocator(self._frame, self._selector, index=index)
+        return _FrameLocator(self._frame, self._selector, index=index, mode=self._mode, value=self._value, exact=self._exact, has_text=self._has_text, has_text_exact=self._has_text_exact)
 
     def last(self) -> "_FrameLocator":
-        return _FrameLocator(self._frame, self._selector, index=-1)
+        return _FrameLocator(self._frame, self._selector, index=-1, mode=self._mode, value=self._value, exact=self._exact, has_text=self._has_text, has_text_exact=self._has_text_exact)
+
+    def filter(self, has_text: Optional[str] = None, exact: bool = False) -> "_FrameLocator":
+        return _FrameLocator(
+            self._frame,
+            self._selector,
+            index=self._index,
+            mode=self._mode,
+            value=self._value,
+            exact=self._exact,
+            has_text=has_text,
+            has_text_exact=exact,
+            parent=self._parent,
+        )
+
+    def locator(self, selector: str) -> "_FrameLocator":
+        return _FrameLocator(self._frame, selector, parent=self)
 
     async def wait_for(self, state: str = "visible", timeout: int = 5000) -> None:
         result = await self._frame.wait_for_selector(self._selector, timeout=timeout, state=state)
@@ -2807,10 +2972,10 @@ class _FrameLocator:
         )
 
     async def count(self) -> int:
-        sel = self._selector.replace("\\", "\\\\").replace("'", "\\'")
+        collection_expr = self._apply_text_filter(self._collection_expr())
         result = await self._frame._page._frame_eval_body(
             self._frame.path,
-            f"return doc.querySelectorAll('{sel}').length;",
+            f"return ({collection_expr}).length;",
         )
         try:
             return int(result)

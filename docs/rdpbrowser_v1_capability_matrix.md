@@ -63,6 +63,10 @@ Status values:
 | `page.wait_until_hidden()` | ready | hidden-state wait wrapper | Smoke-covered |
 | `page.wait_until_visible()` | ready | visible-state wait wrapper | Smoke-covered |
 | `page.first()` / `page.nth()` / `page.last()` | ready | richer locator selection helpers | Smoke-covered |
+| `page.get_by_text()` | ready | text-based locator helper | Smoke-covered |
+| `page.get_by_placeholder()` | ready | placeholder-based locator helper | Smoke-covered |
+| `page.get_by_label()` | ready | label-based locator helper | Smoke-covered |
+| `page.get_by_test_id()` | ready | test-id locator helper | Smoke-covered |
 | `wait_for_selector()` | ready | JS observer/polling | Smoke-validated |
 | `locator.wait_for()` | ready | JS observer/polling | Smoke-validated |
 | `locator.text_content()` | ready | in-page JS | Smoke-validated |
@@ -70,6 +74,8 @@ Status values:
 | `locator.get_attribute()` | ready | in-page JS | Smoke-validated |
 | `locator.count()` | ready | in-page JS | Smoke-validated |
 | `locator.first()` / `locator.last()` / `locator.nth()` | ready | richer locator selection helpers | Smoke-covered |
+| `locator.filter(has_text=...)` | ready | text-filtered locator helper | Smoke-covered |
+| `locator.locator()` | ready | practical locator chaining | Smoke-covered |
 | `locator.exists()` | ready | richer locator helper | Smoke-covered |
 | `locator.is_visible()` / `locator.is_hidden()` | ready | richer locator helper | Smoke-covered |
 
@@ -171,6 +177,12 @@ Status values:
 | `frame.wait_for_text()` | ready | same-origin frame text polling | Smoke-covered |
 | `frame.wait_for_selector()` | ready | same-origin frame polling | Smoke-covered |
 | `frame.locator()` | ready | frame-scoped locator helper | Smoke-covered |
+| `frame.get_by_text()` | ready | frame text-based locator helper | Smoke-covered |
+| `frame.get_by_placeholder()` | ready | frame placeholder-based locator helper | Smoke-covered |
+| `frame.get_by_label()` | ready | frame label-based locator helper | Smoke-covered |
+| `frame.get_by_test_id()` | ready | frame test-id locator helper | Smoke-covered |
+| `frame.locator(...).filter(has_text=...)` | ready | frame text-filtered locator helper | Smoke-covered |
+| `frame.locator(...).locator()` | ready | frame practical locator chaining | Smoke-covered |
 | `frame.hover()` | ready | frame geometry + mouse move | Smoke-covered |
 | `frame.click()` | ready | frame geometry + mouse click | Smoke-covered |
 | `frame.focus()` | ready | same-origin frame JS helper | Smoke-covered |

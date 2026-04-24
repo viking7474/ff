@@ -108,6 +108,27 @@ async def test_selectors(reporter):
         await run_test(reporter, "locator.exists()", page.locator("h1").exists())
         await run_test(reporter, "locator.is_visible()", page.locator("h1").is_visible())
         await run_test(reporter, "locator.is_hidden()", page.locator("#missing").is_hidden())
+        await run_test(reporter, "page.get_by_text(Learn more)", page.get_by_text("Learn more").text_content())
+        await run_test(reporter, "page.get_by_text(Example Domain, exact)", page.get_by_text("Example Domain", exact=True).inner_text())
+        await run_test(
+            reporter,
+            "inject placeholder/label inputs",
+            page.evaluate(
+                """
+                (() => {
+                  const wrap = document.createElement('div');
+                  wrap.innerHTML = '<div data-testid="rdp-card"><label for="rdp-email">Email</label><input id="rdp-email" placeholder="Enter email" /><span class="inner">Inner Text</span></div>';
+                  document.body.appendChild(wrap);
+                  return true;
+                })()
+                """
+            ),
+        )
+        await run_test(reporter, "page.get_by_placeholder(Enter email)", page.get_by_placeholder("Enter email").exists())
+        await run_test(reporter, "page.get_by_label(Email)", page.get_by_label("Email").exists())
+        await run_test(reporter, "page.get_by_test_id(rdp-card)", page.get_by_test_id("rdp-card").exists())
+        await run_test(reporter, "locator.filter(has_text=Learn)", page.locator("a").filter(has_text="Learn").text_content())
+        await run_test(reporter, "locator.locator(.inner)", page.get_by_test_id("rdp-card").locator(".inner").text_content())
 
 
 async def test_wait_until_hidden(reporter):

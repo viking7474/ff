@@ -35,7 +35,7 @@ async def main() -> None:
             (() => {
               const f1 = document.createElement('iframe');
               f1.name = 'sameOriginFrame';
-              f1.srcdoc = '<html><body><h1>Frame One</h1><a href="javascript:void(0)" id="frame-link">Link</a><input id="frame-input" /><iframe name="nestedFrame" srcdoc="<html><body><p id=&quot;nested-text&quot;>Nested Frame</p></body></html>"></iframe><script>window.__frameClicked=false; document.addEventListener("click", e => { if (e.target && e.target.id === "frame-link") window.__frameClicked = true; });</script></body></html>';
+              f1.srcdoc = '<html><body><div data-testid="frame-card"><h1>Frame One</h1><a href="javascript:void(0)" id="frame-link">Link</a><label for="frame-input">Frame Input</label><input id="frame-input" placeholder="Type here" /><span class="inner">Frame Inner</span></div><iframe name="nestedFrame" srcdoc="<html><body><p id=&quot;nested-text&quot;>Nested Frame</p></body></html>"></iframe><script>window.__frameClicked=false; document.addEventListener("click", e => { if (e.target && e.target.id === "frame-link") window.__frameClicked = true; });</script></body></html>';
               document.body.appendChild(f1);
 
               const f2 = document.createElement('iframe');
@@ -97,6 +97,13 @@ async def main() -> None:
         print("frame locator first text:", await frame0.locator("a").first().text_content())
         print("frame locator nth(0) text:", await frame0.locator("a").nth(0).text_content())
         print("frame locator last text:", await frame0.locator("a").last().text_content())
+        print("frame get_by_text(Link):", await frame0.get_by_text("Link").text_content())
+        print("frame get_by_text(Frame One, exact):", await frame0.get_by_text("Frame One", exact=True).inner_text())
+        print("frame get_by_placeholder(Type here):", await frame0.get_by_placeholder("Type here").exists())
+        print("frame get_by_label(Frame Input):", await frame0.get_by_label("Frame Input").exists())
+        print("frame get_by_test_id(frame-card):", await frame0.get_by_test_id("frame-card").exists())
+        print("frame locator filter(has_text=Link):", await frame0.locator("a").filter(has_text="Link").text_content())
+        print("frame locator.locator(.inner):", await frame0.get_by_test_id("frame-card").locator(".inner").text_content())
         await frame0.locator("#frame-link").hover()
         print("frame locator hover(#frame-link): ok")
         await frame0.locator("#frame-link").click()

@@ -232,6 +232,27 @@ Locator helpers now also include:
 5. `locator.exists()`
 6. `locator.is_visible()`
 7. `locator.is_hidden()`
+8. `locator.filter(has_text=..., exact=False)`
+
+Additional practical locator-style helpers:
+
+1. `page.get_by_text(text, exact=False)`
+2. `page.get_by_placeholder(text, exact=False)`
+3. `page.get_by_label(text, exact=False)`
+4. `page.get_by_test_id(value)`
+
+The same helper style is available on same-origin frames:
+
+1. `frame.get_by_text(...)`
+2. `frame.get_by_placeholder(...)`
+3. `frame.get_by_label(...)`
+4. `frame.get_by_test_id(...)`
+5. `frame.locator(...).filter(has_text=...)`
+
+Locator chaining is also supported in a practical form:
+
+1. `locator.locator(selector)`
+2. `frame.locator(...).locator(selector)`
 
 ### Page interaction helpers
 
