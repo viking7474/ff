@@ -2624,7 +2624,7 @@ class _Locator:
 
         if self._mode == "testid":
             value = (self._value or "").replace("\\", "\\\\").replace("'", "\\'")
-            return f"Array.from(({root}).querySelectorAll('[data-testid=\'{value}\']'))"
+            return f"Array.from(({root}).querySelectorAll('[data-testid]')).filter(el => (el.getAttribute('data-testid') || '') === '{value}')"
 
         sel = self._selector
         if sel.startswith("text="):
@@ -2896,7 +2896,7 @@ class _FrameLocator:
 
         if self._mode == "testid":
             value = (self._value or "").replace("\\", "\\\\").replace("'", "\\'")
-            return f"Array.from(({root}).querySelectorAll('[data-testid=\'{value}\']'))"
+            return f"Array.from(({root}).querySelectorAll('[data-testid]')).filter(el => (el.getAttribute('data-testid') || '') === '{value}')"
 
         sel = self._selector.replace("\\", "\\\\").replace("'", "\\'")
         return f"Array.from(({root}).querySelectorAll('{sel}'))"
