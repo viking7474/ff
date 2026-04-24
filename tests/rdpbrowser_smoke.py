@@ -597,19 +597,12 @@ async def test_interception(reporter):
         )
         mocked_text = await run_test(
             reporter,
-            "fetch mocked text",
-            page.evaluate(
-                """
-                (async () => {
-                  const r = await fetch('https://example.com/rdp-mock-text');
-                  return await r.text();
-                })
-                """
-            ),
+            "bg_fetch mocked text",
+            page.bg_fetch("https://example.com/rdp-mock-text"),
         )
         reporter.add(
             "mocked text response observed",
-            "PASS" if mocked_text == "mocked-text-response" else "FAIL",
+            "PASS" if isinstance(mocked_text, dict) and mocked_text.get("body") == "mocked-text-response" else "FAIL",
             str(mocked_text),
         )
 
@@ -620,20 +613,12 @@ async def test_interception(reporter):
         )
         mocked_json = await run_test(
             reporter,
-            "fetch mocked json",
-            page.evaluate(
-                """
-                (async () => {
-                  const r = await fetch('https://example.com/rdp-mock-json');
-                  const v = await r.json();
-                  return JSON.stringify(v);
-                })
-                """
-            ),
+            "bg_fetch mocked json",
+            page.bg_fetch("https://example.com/rdp-mock-json"),
         )
         reporter.add(
             "mocked json response observed",
-            "PASS" if mocked_json == '{"ok": true, "source": "rdp"}' else "FAIL",
+            "PASS" if isinstance(mocked_json, dict) and mocked_json.get("body") == '{"ok": true, "source": "rdp"}' else "FAIL",
             str(mocked_json),
         )
 

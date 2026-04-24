@@ -2260,6 +2260,28 @@ class RDPPage:
             raise ConnectionError("Extension bridge not connected")
         return await self._bridge.send_command("clearInterception", {}, timeout=10)
 
+    async def bg_fetch(
+        self,
+        url: str,
+        method: str = "GET",
+        headers: Optional[Dict[str, Any]] = None,
+        max_body: int = 100000,
+    ) -> Dict[str, Any]:
+        self._ensure_open()
+        if not self._bridge or not self._bridge.is_connected:
+            raise ConnectionError("Extension bridge not connected")
+        result = await self._bridge.send_command(
+            "bgFetch",
+            {
+                "url": url,
+                "method": method,
+                "headers": headers or {},
+                "maxBody": max_body,
+            },
+            timeout=20,
+        )
+        return result or {}
+
     async def fulfill_text(self, patterns: List[str], body: str, content_type: str = "text/plain") -> Dict[str, Any]:
         self._ensure_open()
         self._interception_fulfill_rules = [
