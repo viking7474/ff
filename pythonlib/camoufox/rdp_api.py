@@ -644,6 +644,7 @@ class RDPPage:
         self._dialog_last_id = 0
         self._interception_block_patterns: List[str] = []
         self._interception_header_rules: List[Dict[str, Any]] = []
+        self._interception_fulfill_rules: List[Dict[str, Any]] = []
         self.mouse = _Mouse(self)
         self.keyboard = _Keyboard(self)
 
@@ -2228,6 +2229,7 @@ class RDPPage:
             {
                 "blockPatterns": list(self._interception_block_patterns),
                 "headerRules": list(self._interception_header_rules),
+                "fulfillRules": list(self._interception_fulfill_rules),
             },
             timeout=10,
         )
@@ -2253,9 +2255,25 @@ class RDPPage:
         self._ensure_open()
         self._interception_block_patterns = []
         self._interception_header_rules = []
+        self._interception_fulfill_rules = []
         if not self._bridge or not self._bridge.is_connected:
             raise ConnectionError("Extension bridge not connected")
         return await self._bridge.send_command("clearInterception", {}, timeout=10)
+
+    async def fulfill_text(self, patterns: List[str], body: str, content_type: str = "text/plain") -> Dict[str, Any]:
+        self._ensure_open()
+        self._interception_fulfill_rules = [
+            {
+                "patterns": list(patterns),
+                "body": str(body),
+                "contentType": str(content_type),
+            }
+        ]
+        return await self._apply_interception_rules()
+
+    async def fulfill_json(self, patterns: List[str], data: Any) -> Dict[str, Any]:
+        self._ensure_open()
+        return await self.fulfill_text(patterns, json.dumps(data), content_type="application/json")
 
     async def wait_for_load_state(
         self, state: str = "load", timeout: int = 30000

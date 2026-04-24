@@ -27,6 +27,11 @@ const MAX_REQUEST_EVENTS = 200;
 // --- Minimal interception ---
 let interceptBlockPatterns = [];
 let interceptHeaderRules = []; // [{patterns: [...], headers: {...}}]
+let interceptFulfillRules = []; // [{patterns: [...], body: string, contentType: string}]
+
+function makeDataUrl(body, contentType) {
+  return `data:${contentType};charset=utf-8,${encodeURIComponent(body)}`;
+}
 
 function setupInterceptionListeners() {
   if (browser.webRequest.onBeforeRequest.hasListener(onInterceptRequest)) {
@@ -36,7 +41,7 @@ function setupInterceptionListeners() {
     browser.webRequest.onBeforeSendHeaders.removeListener(onInterceptHeaders);
   }
 
-  if (interceptBlockPatterns.length > 0) {
+  if (interceptBlockPatterns.length > 0 || interceptFulfillRules.length > 0) {
     browser.webRequest.onBeforeRequest.addListener(
       onInterceptRequest,
       { urls: ["<all_urls>"] },
@@ -54,6 +59,32 @@ function setupInterceptionListeners() {
 }
 
 function onInterceptRequest(details) {
+  const fulfillRule = interceptFulfillRules.find(rule => (rule.patterns || []).some(p => details.url.includes(p)));
+  if (fulfillRule) {
+    const fulfilledEntry = {
+      requestId: details.requestId,
+      url: details.url,
+      method: details.method || "GET",
+      body: null,
+      headers: null,
+      responseHeaders: { "content-type": fulfillRule.contentType },
+      responseBody: fulfillRule.body,
+      status: 200,
+      error: null,
+      state: "finished",
+      timestamp: Date.now(),
+    };
+    requestEvents.push({ ...fulfilledEntry, state: "request" });
+    if (requestEvents.length > MAX_REQUEST_EVENTS) {
+      requestEvents = requestEvents.slice(-MAX_REQUEST_EVENTS);
+    }
+    spyResults.push(fulfilledEntry);
+    if (spyResults.length > MAX_SPY) {
+      spyResults = spyResults.slice(-MAX_SPY);
+    }
+    return { redirectUrl: makeDataUrl(fulfillRule.body, fulfillRule.contentType) };
+  }
+
   if (interceptBlockPatterns.some(p => details.url.includes(p))) {
     const blockedEntry = {
       requestId: details.requestId,
@@ -500,17 +531,20 @@ function connect() {
         case "setInterception":
           interceptBlockPatterns = params.blockPatterns || [];
           interceptHeaderRules = params.headerRules || [];
+          interceptFulfillRules = params.fulfillRules || [];
           setupInterceptionListeners();
           result = {
             ok: true,
             blockPatterns: interceptBlockPatterns,
             headerRules: interceptHeaderRules,
+            fulfillRules: interceptFulfillRules,
           };
           break;
 
         case "clearInterception":
           interceptBlockPatterns = [];
           interceptHeaderRules = [];
+          interceptFulfillRules = [];
           setupInterceptionListeners();
           result = { ok: true };
           break;

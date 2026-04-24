@@ -112,6 +112,8 @@ Status values:
 | spied requests | ready | extension bridge | Smoke-validated |
 | `set_request_block_patterns()` | partial | extension `onBeforeRequest` | Smoke-covered |
 | `set_extra_http_headers()` | partial | extension `onBeforeSendHeaders` | Smoke-covered |
+| `fulfill_text()` | partial | `data:` redirect fulfill | Smoke-covered |
+| `fulfill_json()` | partial | `data:` redirect fulfill | Smoke-covered |
 | `clear_interception()` | partial | extension interception reset | Smoke-covered |
 
 ## Diagnostics and State

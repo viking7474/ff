@@ -590,6 +590,55 @@ async def test_interception(reporter):
             )
         await run_test(reporter, "page.clear_interception() after block", page.clear_interception())
 
+        await run_test(
+            reporter,
+            "page.fulfill_text()",
+            page.fulfill_text(["rdp-mock-text"], "mocked-text-response"),
+        )
+        mocked_text = await run_test(
+            reporter,
+            "fetch mocked text",
+            page.evaluate(
+                """
+                (async () => {
+                  const r = await fetch('https://example.com/rdp-mock-text');
+                  return await r.text();
+                })
+                """
+            ),
+        )
+        reporter.add(
+            "mocked text response observed",
+            "PASS" if mocked_text == "mocked-text-response" else "FAIL",
+            str(mocked_text),
+        )
+
+        await run_test(
+            reporter,
+            "page.fulfill_json()",
+            page.fulfill_json(["rdp-mock-json"], {"ok": True, "source": "rdp"}),
+        )
+        mocked_json = await run_test(
+            reporter,
+            "fetch mocked json",
+            page.evaluate(
+                """
+                (async () => {
+                  const r = await fetch('https://example.com/rdp-mock-json');
+                  const v = await r.json();
+                  return JSON.stringify(v);
+                })
+                """
+            ),
+        )
+        reporter.add(
+            "mocked json response observed",
+            "PASS" if mocked_json == '{"ok": true, "source": "rdp"}' else "FAIL",
+            str(mocked_json),
+        )
+
+        await run_test(reporter, "page.clear_interception() after fulfill", page.clear_interception())
+
 
 async def test_memory_and_gc(reporter):
     async with await make_browser(5, headless=False) as browser:

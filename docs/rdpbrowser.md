@@ -321,6 +321,12 @@ Apply practical request-header overrides for matching URL patterns.
 8. `await page.clear_interception()`
 Clear the current minimal interception rules.
 
+9. `await page.fulfill_text(patterns, body, content_type="text/plain")`
+Mock matching requests with a text response using a `data:` URL redirect.
+
+10. `await page.fulfill_json(patterns, data)`
+Mock matching requests with a JSON response using a `data:` URL redirect.
+
 Typical event payloads now include:
 
 1. `requestId`
@@ -342,13 +348,14 @@ Current interception scope is intentionally small:
 
 1. block by URL substring pattern
 2. override request headers by URL substring pattern
+3. mock text or JSON responses by URL substring pattern
 
 Current practical behavior:
 
 1. block and header rules are merged instead of overwriting each other
 2. blocked requests may appear through `requestfailed` with `error="blocked_by_interception"`
 
-It is not yet full route/fulfill/continue parity.
+It is not yet full route/fulfill/continue parity, but it now supports a minimal practical fulfill path for text and JSON.
 
 6. `await page.memory_usage()`
 Read the current tab's memory metrics.
