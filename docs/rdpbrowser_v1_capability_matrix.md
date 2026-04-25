@@ -15,6 +15,15 @@ Status values:
 | launch | ready | RDP + process launch | Validated by smoke suite |
 | close | ready | bridge + RDP + process teardown | Windows cleanup improved |
 | multi-instance | ready | per-instance ports and profiles | Smoke-validated |
+| `browser.new_context()` | partial | isolated child browser wrapper | Smoke-covered |
+| `browser.contexts()` | partial | parent context registry | Smoke-covered |
+| `browser.close_all_contexts()` | partial | parent-managed child browser cleanup | Implemented |
+| `context.new_page()` | partial | context child browser page creation | Smoke-covered |
+| `context.pages()` | partial | context page registry proxy | Smoke-covered |
+| `context.get_active_page()` | partial | context child active-page proxy | Implemented |
+| `context.save_state()` / `context.load_state()` | partial | context child state proxy | Smoke-covered |
+| `context.save_state_to_file()` / `context.load_state_from_file()` | partial | context child file-state proxy | Implemented |
+| `context.close()` | partial | context child browser teardown | Smoke-covered |
 
 ## Page and Navigation
 

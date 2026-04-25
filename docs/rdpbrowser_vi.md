@@ -54,7 +54,21 @@ asyncio.run(main())
 6. `await browser.close_other_pages(page)` - dong tat ca page tru page duoc giu lai.
 7. `await browser.close_all_pages()` - dong tat ca page dang duoc theo doi va xoa registry.
 8. `await browser.wait_for_new_page(timeout=5000)` - doi mot page/tab moi xuat hien, ket hop registry va tab actor de giam race popup.
-9. `await browser.close()` - dong browser.
+9. `await browser.new_context()` - tao context toi thieu voi browser/profile rieng.
+10. `browser.contexts()` - tra danh sach context dang con song.
+11. `await browser.close_all_contexts()` - dong tat ca context con.
+12. `await browser.close()` - dong browser.
+
+## 1b. Contexts
+
+1. `await context.new_page()` - mo page moi ben trong context.
+2. `context.pages()` - tra danh sach page cua context.
+3. `await context.get_active_page()` - lay active page trong context.
+4. `await context.save_state()` - luu state trong context.
+5. `await context.load_state(state)` - nap state vao context.
+6. `await context.save_state_to_file(path)` - ghi state context ra file.
+7. `await context.load_state_from_file(path)` - nap state context tu file.
+8. `await context.close()` - dong context.
 
 ## 2. Page lifecycle va tab management
 

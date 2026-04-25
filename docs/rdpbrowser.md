@@ -452,6 +452,35 @@ Hardening additions in this repo now also include:
 
 `sessionStorage` helpers exist at page level, but are not yet treated as portable browser-wide state parity.
 
+## Contexts
+
+`RDPBrowser` now includes a minimal context model.
+
+Current design:
+
+1. each context is an isolated child `RDPBrowser` instance
+2. each context gets its own profile and ports
+3. this provides practical isolation without pretending to be a single-process Playwright context implementation
+
+Available APIs:
+
+1. `await browser.new_context()`
+2. `browser.contexts()`
+3. `await browser.close_all_contexts()`
+4. `await context.new_page()`
+5. `context.pages()`
+6. `await context.get_active_page()`
+7. `await context.save_state()`
+8. `await context.load_state(state)`
+9. `await context.save_state_to_file(path)`
+10. `await context.load_state_from_file(path)`
+11. `await context.close()`
+
+Smoke coverage:
+
+1. `tests/rdpbrowser_context_smoke.py`
+2. `tests/rdpbrowser_context_stress.py`
+
 ## Frames
 
 `RDPBrowser` now includes a minimal frame model focused on same-origin iframes.

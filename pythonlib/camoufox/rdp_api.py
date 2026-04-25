@@ -147,6 +147,22 @@ def _check_port(host: str, port: int) -> bool:
         return False
 
 
+def _port_bindable(host: str, port: int) -> bool:
+    import socket
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind((host, port))
+        return True
+    except OSError:
+        return False
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+
 async def _wait_for_port(host: str, port: int, timeout: float = 60.0) -> None:
     """Wait for a TCP port to accept connections. Uses sync socket in thread for Windows compatibility."""
     deadline = time.time() + timeout
@@ -2605,6 +2621,82 @@ class RDPPage:
         return []
 
 
+class RDPContext:
+    """Minimal browser context wrapper backed by an isolated child browser."""
+
+    def __init__(self, parent_browser: "RDPBrowser", browser: "RDPBrowser"):
+        self._parent_browser = parent_browser
+        self._browser = browser
+        self._closed = False
+
+    @property
+    def browser(self) -> "RDPBrowser":
+        return self._browser
+
+    @property
+    def profile_path(self) -> Optional[str]:
+        return self._browser._profile_path
+
+    @property
+    def rdp_port(self) -> int:
+        return self._browser._rdp_port
+
+    @property
+    def ws_port(self) -> int:
+        return self._browser._ws_port
+
+    def is_closed(self) -> bool:
+        return self._closed
+
+    async def new_page(self) -> RDPPage:
+        if self._closed:
+            raise RuntimeError("Context is closed")
+        return await self._browser.new_page()
+
+    def pages(self) -> List[RDPPage]:
+        if self._closed:
+            return []
+        return self._browser.list_pages()
+
+    async def get_active_page(self) -> Optional[RDPPage]:
+        if self._closed:
+            return None
+        return await self._browser.get_active_page()
+
+    async def save_state(self) -> Dict[str, Any]:
+        if self._closed:
+            raise RuntimeError("Context is closed")
+        return await self._browser.save_state()
+
+    async def load_state(self, state: Dict[str, Any], clear_existing: bool = True) -> Dict[str, int]:
+        if self._closed:
+            raise RuntimeError("Context is closed")
+        return await self._browser.load_state(state, clear_existing=clear_existing)
+
+    async def save_state_to_file(self, path: str) -> str:
+        if self._closed:
+            raise RuntimeError("Context is closed")
+        return await self._browser.save_state_to_file(path)
+
+    async def load_state_from_file(self, path: str, clear_existing: bool = True) -> Dict[str, int]:
+        if self._closed:
+            raise RuntimeError("Context is closed")
+        return await self._browser.load_state_from_file(path, clear_existing=clear_existing)
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        await self._browser.close()
+        self._closed = True
+        self._parent_browser._unregister_context(self)
+
+    async def __aenter__(self) -> "RDPContext":
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        await self.close()
+
+
 class _Locator:
     """Playwright-compatible locator for RDPPage."""
 
@@ -3422,6 +3514,8 @@ class RDPBrowser:
         self._pages: List[RDPPage] = []
         self._pages_by_tab_actor: Dict[str, RDPPage] = {}
         self._pages_by_tab_id: Dict[int, RDPPage] = {}
+        self._contexts: List[RDPContext] = []
+        self._context_counter = 0
 
     async def _get_active_tab_id(self) -> Optional[int]:
         if self._bridge and self._bridge.is_connected:
@@ -3496,6 +3590,58 @@ class RDPBrowser:
     def list_pages(self) -> List[RDPPage]:
         self._pages = [page for page in self._pages if not page.is_closed()]
         return list(self._pages)
+
+    def contexts(self) -> List[RDPContext]:
+        self._contexts = [ctx for ctx in self._contexts if not ctx.is_closed()]
+        return list(self._contexts)
+
+    def _unregister_context(self, context: RDPContext) -> None:
+        try:
+            self._contexts.remove(context)
+        except ValueError:
+            pass
+
+    async def _find_available_port(self, start_port: int) -> int:
+        port = start_port
+        while port < start_port + 500:
+            bindable = await asyncio.to_thread(_port_bindable, "127.0.0.1", port)
+            if bindable:
+                return port
+            port += 1
+        raise RuntimeError(f"Unable to find available port near {start_port}")
+
+    async def _allocate_context_ports(self) -> tuple[int, int]:
+        self._context_counter += 1
+        rdp_port = await self._find_available_port(self._rdp_port + 100 + self._context_counter)
+        ws_port = await self._find_available_port(self._ws_port + 100 + self._context_counter)
+        if ws_port == rdp_port:
+            ws_port = await self._find_available_port(ws_port + 1)
+        return rdp_port, ws_port
+
+    async def new_context(self, **overrides) -> RDPContext:
+        rdp_port, ws_port = await self._allocate_context_ports()
+        child = RDPBrowser(
+            executable_path=overrides.get("executable_path", self._executable),
+            headless=overrides.get("headless", self._headless),
+            proxy=overrides.get("proxy", self._proxy),
+            viewport=overrides.get("viewport", self._viewport),
+            locale=overrides.get("locale", self._locale),
+            timezone=overrides.get("timezone", self._timezone),
+            rdp_port=overrides.get("rdp_port", rdp_port),
+            ws_port=overrides.get("ws_port", ws_port),
+            firefox_user_prefs=overrides.get("firefox_user_prefs", dict(self._user_prefs)),
+            profile_path=overrides.get("profile_path"),
+            extension_dir=overrides.get("extension_dir", EXTENSION_DIR),
+            fingerprint=overrides.get("fingerprint", self._fingerprint),
+        )
+        await child.start()
+        context = RDPContext(self, child)
+        self._contexts.append(context)
+        return context
+
+    async def close_all_contexts(self) -> None:
+        for context in list(self.contexts()):
+            await context.close()
 
     async def get_active_page(self) -> Optional[RDPPage]:
         if not self._bridge or not self._bridge.is_connected:
@@ -4030,6 +4176,12 @@ class RDPBrowser:
         return self._build_page_from_tab(new_tab_actor_id, bridge_tab_id)
 
     async def close(self) -> None:
+        for context in list(self.contexts()):
+            try:
+                await context.close()
+            except Exception:
+                pass
+
         for page in list(self._pages):
             try:
                 page.dispose()

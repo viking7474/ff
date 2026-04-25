@@ -137,6 +137,14 @@ Recommendations:
 3. use `clear_existing=True` when you want a cleaner restore on a fresh browser instance
 4. use `save_state_to_file()` / `load_state_from_file()` when you need to persist state outside process memory
 
+## Context Model Notes
+
+The current context model is intentionally minimal:
+
+1. each context is backed by an isolated child browser instance
+2. ports are allocated dynamically to reduce collisions
+3. use `tests/rdpbrowser_context_smoke.py` and `tests/rdpbrowser_context_stress.py` when validating context isolation and cleanup
+
 ## Network Capture Confusion
 
 ### `wait_for_response()` succeeds but `get_captured_responses()` is empty
