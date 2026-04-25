@@ -67,6 +67,7 @@ Status values:
 | `page.get_by_placeholder()` | ready | placeholder-based locator helper | Smoke-covered |
 | `page.get_by_label()` | ready | label-based locator helper | Smoke-covered |
 | `page.get_by_test_id()` | ready | test-id locator helper | Smoke-covered |
+| `page.get_by_role()` | ready | practical role-based locator helper | Smoke-covered |
 | `wait_for_selector()` | ready | JS observer/polling | Smoke-validated |
 | `locator.wait_for()` | ready | JS observer/polling | Smoke-validated |
 | `locator.text_content()` | ready | in-page JS | Smoke-validated |
@@ -183,6 +184,7 @@ Status values:
 | `frame.get_by_placeholder()` | ready | frame placeholder-based locator helper | Smoke-covered |
 | `frame.get_by_label()` | ready | frame label-based locator helper | Smoke-covered |
 | `frame.get_by_test_id()` | ready | frame test-id locator helper | Smoke-covered |
+| `frame.get_by_role()` | ready | frame role-based locator helper | Smoke-covered |
 | `frame.locator(...).filter(has_text=...)` | ready | frame text-filtered locator helper | Smoke-covered |
 | `frame.locator(...).locator()` | ready | frame practical locator chaining | Smoke-covered |
 | `frame.hover()` | ready | frame geometry + mouse move | Smoke-covered |

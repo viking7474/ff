@@ -117,7 +117,7 @@ async def test_selectors(reporter):
                 """
                 (() => {
                   const wrap = document.createElement('div');
-                  wrap.innerHTML = '<div data-testid="rdp-card"><label for="rdp-email">Email</label><input id="rdp-email" placeholder="Enter email" /><span class="inner">Inner Text</span></div>';
+                  wrap.innerHTML = '<div data-testid="rdp-card"><label for="rdp-email">Email</label><input id="rdp-email" type="email" placeholder="Enter email" /><button id="rdp-btn">Submit</button><a href="javascript:void(0)" id="rdp-link">Docs</a><input id="rdp-check" type="checkbox" aria-label="Accept terms" /><select id="rdp-select"><option>One</option></select><span class="inner">Inner Text</span></div>';
                   document.body.appendChild(wrap);
                   return true;
                 })()
@@ -127,6 +127,11 @@ async def test_selectors(reporter):
         await run_test(reporter, "page.get_by_placeholder(Enter email)", page.get_by_placeholder("Enter email").exists())
         await run_test(reporter, "page.get_by_label(Email)", page.get_by_label("Email").exists())
         await run_test(reporter, "page.get_by_test_id(rdp-card)", page.get_by_test_id("rdp-card").exists())
+        await run_test(reporter, "page.get_by_role(button, Submit)", page.get_by_role("button", "Submit").inner_text())
+        await run_test(reporter, "page.get_by_role(link, Docs)", page.get_by_role("link", "Docs").inner_text())
+        await run_test(reporter, "page.get_by_role(textbox, Email)", page.get_by_role("textbox", "Email").exists())
+        await run_test(reporter, "page.get_by_role(checkbox, Accept terms)", page.get_by_role("checkbox", "Accept terms").exists())
+        await run_test(reporter, "page.get_by_role(combobox)", page.get_by_role("combobox").exists())
         await run_test(reporter, "locator.filter(has_text=Learn)", page.locator("a").filter(has_text="Learn").text_content())
         await run_test(reporter, "locator.locator(.inner)", page.get_by_test_id("rdp-card").locator(".inner").text_content())
 

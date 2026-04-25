@@ -240,6 +240,7 @@ Additional practical locator-style helpers:
 2. `page.get_by_placeholder(text, exact=False)`
 3. `page.get_by_label(text, exact=False)`
 4. `page.get_by_test_id(value)`
+5. `page.get_by_role(role, name=None, exact=False)`
 
 The same helper style is available on same-origin frames:
 
@@ -248,6 +249,7 @@ The same helper style is available on same-origin frames:
 3. `frame.get_by_label(...)`
 4. `frame.get_by_test_id(...)`
 5. `frame.locator(...).filter(has_text=...)`
+6. `frame.get_by_role(...)`
 
 Locator chaining is also supported in a practical form:
 

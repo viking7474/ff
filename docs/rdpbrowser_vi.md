@@ -99,18 +99,19 @@ asyncio.run(main())
 20. `page.get_by_placeholder(text, exact=False)` - tim input/textarea theo placeholder.
 21. `page.get_by_label(text, exact=False)` - tim control theo label.
 22. `page.get_by_test_id(value)` - tim phan tu theo `data-testid`.
-23. `page.locator(selector)` - tao locator wrapper.
-24. `await locator.wait_for()` - doi locator xuat hien/san sang.
-25. `await locator.text_content()` - lay text content qua locator.
-26. `await locator.inner_text()` - lay innerText qua locator.
-27. `await locator.get_attribute(name)` - lay attribute qua locator.
-28. `await locator.count()` - dem so phan tu qua locator.
-29. `locator.first()` / `locator.last()` / `locator.nth(index)` - tao locator phong phu hon.
-30. `locator.filter(has_text=..., exact=False)` - loc locator theo text.
-31. `locator.locator(selector)` - chain locator con trong subtree cua locator cha.
-32. `await locator.exists()` - kiem tra locator co ton tai hay khong.
-33. `await locator.is_visible()` / `await locator.is_hidden()` - kiem tra trang thai visible/hidden cua locator.
-34. `await page.wait_for_selector(selector)` - doi selector theo implementation hien tai.
+23. `page.get_by_role(role, name=None, exact=False)` - tim phan tu theo role thuc dung (button, link, textbox, checkbox, radio, combobox).
+24. `page.locator(selector)` - tao locator wrapper.
+25. `await locator.wait_for()` - doi locator xuat hien/san sang.
+26. `await locator.text_content()` - lay text content qua locator.
+27. `await locator.inner_text()` - lay innerText qua locator.
+28. `await locator.get_attribute(name)` - lay attribute qua locator.
+29. `await locator.count()` - dem so phan tu qua locator.
+30. `locator.first()` / `locator.last()` / `locator.nth(index)` - tao locator phong phu hon.
+31. `locator.filter(has_text=..., exact=False)` - loc locator theo text.
+32. `locator.locator(selector)` - chain locator con trong subtree cua locator cha.
+33. `await locator.exists()` - kiem tra locator co ton tai hay khong.
+34. `await locator.is_visible()` / `await locator.is_hidden()` - kiem tra trang thai visible/hidden cua locator.
+35. `await page.wait_for_selector(selector)` - doi selector theo implementation hien tai.
 
 ## 5. JS va page content
 
@@ -239,8 +240,9 @@ Trong nhieu truong hop, `request`, `response`, va `requestfinished` co the doi c
 23. `frame.get_by_placeholder(text, exact=False)` - tim input/textarea trong frame theo placeholder.
 24. `frame.get_by_label(text, exact=False)` - tim control trong frame theo label.
 25. `frame.get_by_test_id(value)` - tim phan tu trong frame theo `data-testid`.
-26. `frame.locator(...).filter(has_text=..., exact=False)` - loc locator trong frame theo text.
-27. `frame.locator(...).locator(selector)` - chain locator trong frame.
+26. `frame.get_by_role(role, name=None, exact=False)` - tim phan tu trong frame theo role thuc dung.
+27. `frame.locator(...).filter(has_text=..., exact=False)` - loc locator trong frame theo text.
+28. `frame.locator(...).locator(selector)` - chain locator trong frame.
 
 Gioi han hien tai:
 

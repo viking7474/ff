@@ -35,7 +35,7 @@ async def main() -> None:
             (() => {
               const f1 = document.createElement('iframe');
               f1.name = 'sameOriginFrame';
-              f1.srcdoc = '<html><body><div data-testid="frame-card"><h1>Frame One</h1><a href="javascript:void(0)" id="frame-link">Link</a><label for="frame-input">Frame Input</label><input id="frame-input" placeholder="Type here" /><span class="inner">Frame Inner</span></div><iframe name="nestedFrame" srcdoc="<html><body><p id=&quot;nested-text&quot;>Nested Frame</p></body></html>"></iframe><script>window.__frameClicked=false; document.addEventListener("click", e => { if (e.target && e.target.id === "frame-link") window.__frameClicked = true; });</script></body></html>';
+              f1.srcdoc = '<html><body><div data-testid="frame-card"><h1>Frame One</h1><a href="javascript:void(0)" id="frame-link">Link</a><label for="frame-input">Frame Input</label><input id="frame-input" type="email" placeholder="Type here" /><button id="frame-btn">Frame Button</button><span class="inner">Frame Inner</span></div><iframe name="nestedFrame" srcdoc="<html><body><p id=&quot;nested-text&quot;>Nested Frame</p></body></html>"></iframe><script>window.__frameClicked=false; document.addEventListener("click", e => { if (e.target && e.target.id === "frame-link") window.__frameClicked = true; });</script></body></html>';
               document.body.appendChild(f1);
 
               const f2 = document.createElement('iframe');
@@ -102,6 +102,9 @@ async def main() -> None:
         print("frame get_by_placeholder(Type here):", await frame0.get_by_placeholder("Type here").exists())
         print("frame get_by_label(Frame Input):", await frame0.get_by_label("Frame Input").exists())
         print("frame get_by_test_id(frame-card):", await frame0.get_by_test_id("frame-card").exists())
+        print("frame get_by_role(link, Link):", await frame0.get_by_role("link", "Link").inner_text())
+        print("frame get_by_role(button, Frame Button):", await frame0.get_by_role("button", "Frame Button").inner_text())
+        print("frame get_by_role(textbox, Frame Input):", await frame0.get_by_role("textbox", "Frame Input").exists())
         print("frame locator filter(has_text=Link):", await frame0.locator("a").filter(has_text="Link").text_content())
         print("frame locator.locator(.inner):", await frame0.get_by_test_id("frame-card").locator(".inner").text_content())
         await frame0.locator("#frame-link").hover()

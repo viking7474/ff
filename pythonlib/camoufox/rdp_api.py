@@ -591,6 +591,9 @@ class RDPFrame:
     def get_by_label(self, text: str, exact: bool = False) -> "_FrameLocator":
         return _FrameLocator(self, "", mode="label", value=text, exact=exact)
 
+    def get_by_role(self, role: str, name: Optional[str] = None, exact: bool = False) -> "_FrameLocator":
+        return _FrameLocator(self, "", mode="role", value=role, role_name=name, role_name_exact=exact)
+
     async def parent_frame(self) -> Optional["RDPFrame"]:
         if not self.parent_path:
             return None
@@ -2573,6 +2576,9 @@ class RDPPage:
     def get_by_test_id(self, value: str) -> "_Locator":
         return _Locator(self, "", mode="testid", value=value, exact=True)
 
+    def get_by_role(self, role: str, name: Optional[str] = None, exact: bool = False) -> "_Locator":
+        return _Locator(self, "", mode="role", value=role, role_name=name, role_name_exact=exact)
+
     def first(self, selector: str) -> "_Locator":
         return _Locator(self, selector, index=0)
 
@@ -2610,6 +2616,8 @@ class _Locator:
         mode: str = "css",
         value: Optional[str] = None,
         exact: bool = False,
+        role_name: Optional[str] = None,
+        role_name_exact: bool = False,
         has_text: Optional[str] = None,
         has_text_exact: bool = False,
         parent: Optional["_Locator"] = None,
@@ -2620,6 +2628,8 @@ class _Locator:
         self._mode = mode
         self._value = value
         self._exact = exact
+        self._role_name = role_name
+        self._role_name_exact = role_name_exact
         self._has_text = has_text
         self._has_text_exact = has_text_exact
         self._parent = parent
@@ -2662,6 +2672,52 @@ class _Locator:
                 f"(function(){{ var scope={root}; return Array.from(scope.querySelectorAll('label')).map(label => {{ var txt=(label.innerText||label.textContent||''); if (!({matcher})) return null; var target=null; var htmlFor=label.getAttribute('for'); if (htmlFor && scope.getElementById) target=scope.getElementById(htmlFor); if(!target) target=label.querySelector('input, textarea, select, button'); return target; }}).filter(Boolean); }})()"
             )
 
+        if self._mode == "role":
+            role = (self._value or "").replace("\\", "\\\\").replace("'", "\\'")
+            role_name = (self._role_name or "").replace("\\", "\\\\").replace("'", "\\'")
+            name_match = (
+                "true"
+                if self._role_name is None
+                else (f"accName.trim() === '{role_name}'" if self._role_name_exact else f"accName.includes('{role_name}')")
+            )
+            return (
+                f"""(function(){{
+                  const scope = {root};
+                  const all = Array.from(scope.querySelectorAll('*'));
+                  function implicitRole(el) {{
+                    const tag = (el.tagName || '').toLowerCase();
+                    const type = (el.getAttribute('type') || '').toLowerCase();
+                    if (tag === 'button') return 'button';
+                    if (tag === 'a' && el.hasAttribute('href')) return 'link';
+                    if (tag === 'textarea') return 'textbox';
+                    if (tag === 'input' && ['text','email','search','url','tel','password'].includes(type)) return 'textbox';
+                    if (tag === 'input' && type === 'checkbox') return 'checkbox';
+                    if (tag === 'input' && type === 'radio') return 'radio';
+                    if (tag === 'select') return 'combobox';
+                    if (tag === 'input' && ['button','submit','reset'].includes(type)) return 'button';
+                    return null;
+                  }}
+                  function accessibleName(el) {{
+                    const ariaLabel = el.getAttribute('aria-label');
+                    if (ariaLabel) return ariaLabel.trim();
+                    const labelledBy = el.getAttribute('aria-labelledby');
+                    if (labelledBy) return labelledBy.split(/\s+/).map(id => scope.getElementById ? scope.getElementById(id) : null).filter(Boolean).map(n => (n.innerText || n.textContent || '').trim()).join(' ').trim();
+                    if (el.labels && el.labels.length) return Array.from(el.labels).map(l => (l.innerText || l.textContent || '').trim()).join(' ').trim();
+                    const tag = (el.tagName || '').toLowerCase();
+                    const type = (el.getAttribute('type') || '').toLowerCase();
+                    if (tag === 'input' && ['button','submit','reset'].includes(type)) return (el.value || '').trim();
+                    return ((el.innerText || el.textContent || '') || '').trim();
+                  }}
+                  return all.filter(el => {{
+                    const explicitRole = (el.getAttribute('role') || '').trim();
+                    const actualRole = explicitRole || implicitRole(el);
+                    if (actualRole !== '{role}') return false;
+                    const accName = accessibleName(el);
+                    return {name_match};
+                  }});
+                }})()"""
+            )
+
         if self._mode == "testid":
             value = (self._value or "").replace("\\", "\\\\").replace("'", "\\'")
             return f"Array.from(({root}).querySelectorAll('[data-testid]')).filter(el => (el.getAttribute('data-testid') || '') === '{value}')"
@@ -2701,13 +2757,13 @@ class _Locator:
         return f"(function(){{ var els=({collection_expr}); return els.length>{self._index} ? els[{self._index}] : null; }})()"
 
     def first(self) -> "_Locator":
-        return _Locator(self._page, self._selector, index=0, mode=self._mode, value=self._value, exact=self._exact, has_text=self._has_text, has_text_exact=self._has_text_exact)
+        return _Locator(self._page, self._selector, index=0, mode=self._mode, value=self._value, exact=self._exact, role_name=self._role_name, role_name_exact=self._role_name_exact, has_text=self._has_text, has_text_exact=self._has_text_exact, parent=self._parent)
 
     def nth(self, index: int) -> "_Locator":
-        return _Locator(self._page, self._selector, index=index, mode=self._mode, value=self._value, exact=self._exact, has_text=self._has_text, has_text_exact=self._has_text_exact)
+        return _Locator(self._page, self._selector, index=index, mode=self._mode, value=self._value, exact=self._exact, role_name=self._role_name, role_name_exact=self._role_name_exact, has_text=self._has_text, has_text_exact=self._has_text_exact, parent=self._parent)
 
     def last(self) -> "_Locator":
-        return _Locator(self._page, self._selector, index=-1, mode=self._mode, value=self._value, exact=self._exact, has_text=self._has_text, has_text_exact=self._has_text_exact)
+        return _Locator(self._page, self._selector, index=-1, mode=self._mode, value=self._value, exact=self._exact, role_name=self._role_name, role_name_exact=self._role_name_exact, has_text=self._has_text, has_text_exact=self._has_text_exact, parent=self._parent)
 
     def filter(self, has_text: Optional[str] = None, exact: bool = False) -> "_Locator":
         return _Locator(
@@ -2717,6 +2773,8 @@ class _Locator:
             mode=self._mode,
             value=self._value,
             exact=self._exact,
+            role_name=self._role_name,
+            role_name_exact=self._role_name_exact,
             has_text=has_text,
             has_text_exact=exact,
             parent=self._parent,
@@ -2892,6 +2950,8 @@ class _FrameLocator:
         mode: str = "css",
         value: Optional[str] = None,
         exact: bool = False,
+        role_name: Optional[str] = None,
+        role_name_exact: bool = False,
         has_text: Optional[str] = None,
         has_text_exact: bool = False,
         parent: Optional["_FrameLocator"] = None,
@@ -2902,6 +2962,8 @@ class _FrameLocator:
         self._mode = mode
         self._value = value
         self._exact = exact
+        self._role_name = role_name
+        self._role_name_exact = role_name_exact
         self._has_text = has_text
         self._has_text_exact = has_text_exact
         self._parent = parent
@@ -2934,6 +2996,52 @@ class _FrameLocator:
                 f"(function(){{ var scope={root}; return Array.from(scope.querySelectorAll('label')).map(label => {{ var txt=(label.innerText||label.textContent||''); if (!({matcher})) return null; var target=null; var htmlFor=label.getAttribute('for'); if (htmlFor && scope.getElementById) target=scope.getElementById(htmlFor); if(!target) target=label.querySelector('input, textarea, select, button'); return target; }}).filter(Boolean); }})()"
             )
 
+        if self._mode == "role":
+            role = (self._value or "").replace("\\", "\\\\").replace("'", "\\'")
+            role_name = (self._role_name or "").replace("\\", "\\\\").replace("'", "\\'")
+            name_match = (
+                "true"
+                if self._role_name is None
+                else (f"accName.trim() === '{role_name}'" if self._role_name_exact else f"accName.includes('{role_name}')")
+            )
+            return (
+                f"""(function(){{
+                  const scope = {root};
+                  const all = Array.from(scope.querySelectorAll('*'));
+                  function implicitRole(el) {{
+                    const tag = (el.tagName || '').toLowerCase();
+                    const type = (el.getAttribute('type') || '').toLowerCase();
+                    if (tag === 'button') return 'button';
+                    if (tag === 'a' && el.hasAttribute('href')) return 'link';
+                    if (tag === 'textarea') return 'textbox';
+                    if (tag === 'input' && ['text','email','search','url','tel','password'].includes(type)) return 'textbox';
+                    if (tag === 'input' && type === 'checkbox') return 'checkbox';
+                    if (tag === 'input' && type === 'radio') return 'radio';
+                    if (tag === 'select') return 'combobox';
+                    if (tag === 'input' && ['button','submit','reset'].includes(type)) return 'button';
+                    return null;
+                  }}
+                  function accessibleName(el) {{
+                    const ariaLabel = el.getAttribute('aria-label');
+                    if (ariaLabel) return ariaLabel.trim();
+                    const labelledBy = el.getAttribute('aria-labelledby');
+                    if (labelledBy) return labelledBy.split(/\s+/).map(id => scope.getElementById ? scope.getElementById(id) : null).filter(Boolean).map(n => (n.innerText || n.textContent || '').trim()).join(' ').trim();
+                    if (el.labels && el.labels.length) return Array.from(el.labels).map(l => (l.innerText || l.textContent || '').trim()).join(' ').trim();
+                    const tag = (el.tagName || '').toLowerCase();
+                    const type = (el.getAttribute('type') || '').toLowerCase();
+                    if (tag === 'input' && ['button','submit','reset'].includes(type)) return (el.value || '').trim();
+                    return ((el.innerText || el.textContent || '') || '').trim();
+                  }}
+                  return all.filter(el => {{
+                    const explicitRole = (el.getAttribute('role') || '').trim();
+                    const actualRole = explicitRole || implicitRole(el);
+                    if (actualRole !== '{role}') return false;
+                    const accName = accessibleName(el);
+                    return {name_match};
+                  }});
+                }})()"""
+            )
+
         if self._mode == "testid":
             value = (self._value or "").replace("\\", "\\\\").replace("'", "\\'")
             return f"Array.from(({root}).querySelectorAll('[data-testid]')).filter(el => (el.getAttribute('data-testid') || '') === '{value}')"
@@ -2960,13 +3068,13 @@ class _FrameLocator:
         return self._selector_expr()
 
     def first(self) -> "_FrameLocator":
-        return _FrameLocator(self._frame, self._selector, index=0, mode=self._mode, value=self._value, exact=self._exact, has_text=self._has_text, has_text_exact=self._has_text_exact)
+        return _FrameLocator(self._frame, self._selector, index=0, mode=self._mode, value=self._value, exact=self._exact, role_name=self._role_name, role_name_exact=self._role_name_exact, has_text=self._has_text, has_text_exact=self._has_text_exact, parent=self._parent)
 
     def nth(self, index: int) -> "_FrameLocator":
-        return _FrameLocator(self._frame, self._selector, index=index, mode=self._mode, value=self._value, exact=self._exact, has_text=self._has_text, has_text_exact=self._has_text_exact)
+        return _FrameLocator(self._frame, self._selector, index=index, mode=self._mode, value=self._value, exact=self._exact, role_name=self._role_name, role_name_exact=self._role_name_exact, has_text=self._has_text, has_text_exact=self._has_text_exact, parent=self._parent)
 
     def last(self) -> "_FrameLocator":
-        return _FrameLocator(self._frame, self._selector, index=-1, mode=self._mode, value=self._value, exact=self._exact, has_text=self._has_text, has_text_exact=self._has_text_exact)
+        return _FrameLocator(self._frame, self._selector, index=-1, mode=self._mode, value=self._value, exact=self._exact, role_name=self._role_name, role_name_exact=self._role_name_exact, has_text=self._has_text, has_text_exact=self._has_text_exact, parent=self._parent)
 
     def filter(self, has_text: Optional[str] = None, exact: bool = False) -> "_FrameLocator":
         return _FrameLocator(
@@ -2976,6 +3084,8 @@ class _FrameLocator:
             mode=self._mode,
             value=self._value,
             exact=self._exact,
+            role_name=self._role_name,
+            role_name_exact=self._role_name_exact,
             has_text=has_text,
             has_text_exact=exact,
             parent=self._parent,
