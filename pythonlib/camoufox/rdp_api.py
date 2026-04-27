@@ -2744,6 +2744,35 @@ class RDPContext:
         await self.close()
 
 
+# Low-risk module split bridge: keep this file as the execution backbone for
+# now, but start sourcing selected small primitives from the new winfox.rdp
+# namespace so the refactor can progress incrementally.
+from winfox.rdp.bridge import _ExtensionBridge as _SplitExtensionBridge  # noqa: E402
+from winfox.rdp.context import RDPContext as _SplitRDPContext  # noqa: E402
+from winfox.rdp.dialog import RDPDialog as _SplitRDPDialog  # noqa: E402
+from winfox.rdp.frame import RDPFrame as _SplitRDPFrame, _FrameLocator as _SplitFrameLocator  # noqa: E402
+from winfox.rdp.locator import _Locator as _SplitLocator  # noqa: E402
+from winfox.rdp.ports import (  # noqa: E402
+    _PORT_ALLOCATOR as _SPLIT_PORT_ALLOCATOR,
+    _PortAllocator as _SplitPortAllocator,
+    _check_port as _split_check_port,
+    _port_bindable as _split_port_bindable,
+    _wait_for_port as _split_wait_for_port,
+)
+
+_ExtensionBridge = _SplitExtensionBridge
+RDPContext = _SplitRDPContext
+RDPDialog = _SplitRDPDialog
+RDPFrame = _SplitRDPFrame
+_FrameLocator = _SplitFrameLocator
+_Locator = _SplitLocator
+_PortAllocator = _SplitPortAllocator
+_PORT_ALLOCATOR = _SPLIT_PORT_ALLOCATOR
+_check_port = _split_check_port
+_port_bindable = _split_port_bindable
+_wait_for_port = _split_wait_for_port
+
+
 class _Locator:
     """Playwright-compatible locator for RDPPage."""
 
