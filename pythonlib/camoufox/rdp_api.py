@@ -2752,6 +2752,7 @@ from winfox.rdp.context import RDPContext as _SplitRDPContext  # noqa: E402
 from winfox.rdp.dialog import RDPDialog as _SplitRDPDialog  # noqa: E402
 from winfox.rdp.frame import RDPFrame as _SplitRDPFrame, _FrameLocator as _SplitFrameLocator  # noqa: E402
 from winfox.rdp.locator import _Locator as _SplitLocator  # noqa: E402
+from winfox.rdp.page import RDPPage as _SplitRDPPage, _Keyboard as _SplitKeyboard, _Mouse as _SplitMouse  # noqa: E402
 from winfox.rdp.ports import (  # noqa: E402
     _PORT_ALLOCATOR as _SPLIT_PORT_ALLOCATOR,
     _PortAllocator as _SplitPortAllocator,
@@ -2766,6 +2767,9 @@ RDPDialog = _SplitRDPDialog
 RDPFrame = _SplitRDPFrame
 _FrameLocator = _SplitFrameLocator
 _Locator = _SplitLocator
+RDPPage = _SplitRDPPage
+_Mouse = _SplitMouse
+_Keyboard = _SplitKeyboard
 _PortAllocator = _SplitPortAllocator
 _PORT_ALLOCATOR = _SPLIT_PORT_ALLOCATOR
 _check_port = _split_check_port
@@ -4316,3 +4320,11 @@ class RDPBrowser:
             self._ports_reserved = False
 
         logger.info("RDPBrowser closed")
+
+
+# Final low-risk rebind after all legacy class definitions in this file. This
+# ensures split modules for page-layer helpers win over the original in-file
+# definitions during runtime lookup.
+RDPPage = _SplitRDPPage
+_Mouse = _SplitMouse
+_Keyboard = _SplitKeyboard

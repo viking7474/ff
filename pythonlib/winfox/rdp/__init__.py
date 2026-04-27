@@ -1,10 +1,11 @@
 from .bridge import _ExtensionBridge
+from .browser import RDPBrowser
 from .context import RDPContext
 from .dialog import RDPDialog
 from .frame import RDPFrame, _FrameLocator
 from .locator import _Locator
+from .page import RDPPage, _Keyboard, _Mouse
 from .ports import _PORT_ALLOCATOR, _PortAllocator, _check_port, _port_bindable, _wait_for_port
-from camoufox.rdp_api import RDPBrowser, RDPPage
 
 __all__ = [
     "RDPBrowser",
@@ -12,6 +13,8 @@ __all__ = [
     "RDPFrame",
     "RDPContext",
     "RDPDialog",
+    "_Mouse",
+    "_Keyboard",
     "_FrameLocator",
     "_Locator",
     "_ExtensionBridge",
