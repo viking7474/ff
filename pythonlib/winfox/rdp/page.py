@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from camoufox.humanize import generate_path as _generate_path, hover_delay as _hover_delay
-from camoufox.rdp_api import RDPPage as _LegacyRDPPage
+from camoufox._rdp_legacy_impl import RDPPage as _LegacyRDPPage
 from geckordp.actors.events import Events
 from geckordp.actors.root import RootActor
 from geckordp.actors.screenshot import ScreenshotActor
@@ -38,7 +38,7 @@ from .locator import _Locator
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from camoufox.rdp_api import RDPPage as _LegacyRDPPage
+    from camoufox._rdp_legacy_impl import RDPPage as _LegacyRDPPage
 
 
 class _Mouse:
@@ -1277,6 +1277,92 @@ class RDPPage(_LegacyRDPPage):
     async def fulfill_json(self, patterns: List[str], data: Any) -> Dict[str, Any]:
         self._ensure_open()
         return await self.fulfill_text(patterns, json.dumps(data), content_type="application/json")
+
+    async def _ensure_network_event_bridge(self) -> None:
+        if self._network_events_started:
+            return
+        if not self._bridge or not self._bridge.is_connected:
+            raise ConnectionError("Extension bridge not connected")
+        await self._bridge.send_command("startSpy", {"patterns": ["http"]}, timeout=10)
+        await self._bridge.send_command("startCapture", {"patterns": ["http"]}, timeout=10)
+        self._request_event_ts = int(time.time() * 1000)
+        self._spy_event_ts = self._request_event_ts
+        self._network_events_started = True
+        self._network_event_task = self._loop.create_task(self._network_event_poller())
+
+    async def _network_event_poller(self) -> None:
+        try:
+            while not self._closed:
+                if not self._bridge or not self._bridge.is_connected:
+                    await asyncio.sleep(0.2)
+                    continue
+
+                request_result = await self._bridge.send_command(
+                    "getRequestEvents", {"since": self._request_event_ts}, timeout=5
+                )
+                requests = request_result.get("requests", []) if request_result else []
+                for req in requests:
+                    self._request_event_ts = max(self._request_event_ts, req.get("timestamp", 0))
+                    signature = (req.get("requestId"), "request", req.get("timestamp", 0))
+                    if not self._remember_network_event(signature):
+                        continue
+                    payload = self._make_network_event_payload("request", req)
+                    payload["state"] = payload["state"] or "request"
+                    self._emit_event("request", payload)
+
+                spy_result = await self._bridge.send_command(
+                    "getSpiedRequests", {"since": self._spy_event_ts}, timeout=5
+                )
+                network_events = spy_result.get("requests", []) if spy_result else []
+                for item in network_events:
+                    self._spy_event_ts = max(self._spy_event_ts, item.get("timestamp", 0))
+                    state = item.get("state")
+                    signature = (item.get("requestId"), state, item.get("timestamp", 0))
+                    if not self._remember_network_event(signature):
+                        continue
+                    response_payload = self._make_network_event_payload("response", item)
+                    if state == "failed":
+                        self._emit_event(
+                            "requestfailed",
+                            {
+                                **response_payload,
+                                "event": "requestfailed",
+                                "error": item.get("error"),
+                            },
+                        )
+                        continue
+                    self._emit_event("response", response_payload)
+                    self._emit_event(
+                        "requestfinished",
+                        {
+                            **response_payload,
+                            "event": "requestfinished",
+                            "state": "finished",
+                        },
+                    )
+
+                await asyncio.sleep(0.2)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("RDPBrowser network event poller failed")
+
+    def on(self, event: str, callback) -> None:
+        self._ensure_open()
+        self._event_listeners.setdefault(event, []).append(callback)
+        if event in {"request", "response", "requestfinished", "requestfailed"}:
+            self._loop.create_task(self._ensure_network_event_bridge())
+        logger.debug("Event listener registered: %s", event)
+
+    def remove_listener(self, event: str, callback) -> None:
+        self._ensure_open()
+        if event in self._event_listeners:
+            try:
+                self._event_listeners[event].remove(callback)
+                if not self._event_listeners[event]:
+                    self._event_listeners.pop(event, None)
+            except ValueError:
+                pass
 
     async def click(self, selector: str) -> None:
         self._ensure_open()

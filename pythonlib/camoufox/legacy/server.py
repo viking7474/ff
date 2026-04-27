@@ -1,4 +1,25 @@
-from .legacy.server import *  # noqa: F401,F403
+import subprocess
+from pathlib import Path
+from typing import Any, Dict, NoReturn, Tuple, Union
+
+import base64
+import orjson
+from playwright._impl._driver import compute_driver_executable
+
+from camoufox.pkgman import LOCAL_DATA
+from camoufox.utils import launch_options
+
+LAUNCH_SCRIPT: Path = LOCAL_DATA / "launchServer.js"
+
+
+def camel_case(snake_str: str) -> str:
+    """
+    Convert a string to camelCase
+    """
+    if len(snake_str) < 2:
+        return snake_str
+    camel_case_str = ''.join(x.capitalize() for x in snake_str.lower().split('_'))
+    return camel_case_str[0].lower() + camel_case_str[1:]
 
 
 def to_camel_case_dict(data: Dict[str, Any]) -> Dict[str, Any]:

@@ -1,4 +1,43 @@
-from .legacy.sync_api import *  # noqa: F401,F403
+import json as _json
+import urllib.request
+from typing import Any, Dict, List, Optional, Union, overload
+from urllib.parse import urlparse
+
+from playwright.sync_api import (
+    Browser,
+    BrowserContext,
+    Playwright,
+    PlaywrightContextManager,
+)
+from typing_extensions import Literal
+
+from camoufox.virtdisplay import VirtualDisplay
+
+from .exceptions import InvalidProxy
+from .fingerprints import generate_context_fingerprint
+from .pkgman import installed_verstr
+from .utils import launch_options, sync_attach_vd
+
+
+class Camoufox(PlaywrightContextManager):
+    """
+    Wrapper around playwright.sync_api.PlaywrightContextManager that automatically
+    launches a browser and closes it when the context manager is exited.
+    """
+
+    def __init__(self, **launch_options):
+        super().__init__()
+        self.launch_options = launch_options
+        self.browser: Optional[Union[Browser, BrowserContext]] = None
+
+    def __enter__(self) -> Union[Browser, BrowserContext]:
+        super().__enter__()
+        try:
+            self.browser = NewBrowser(self._playwright, **self.launch_options)
+        except InvalidProxy as e:
+            super().__exit__(InvalidProxy, e, None)
+            raise
+        return self.browser
 
     def __exit__(self, *args: Any):
         if self.browser:

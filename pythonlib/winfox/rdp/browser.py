@@ -16,7 +16,7 @@ import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
-from camoufox.rdp_api import (
+from camoufox._rdp_legacy_impl import (
     RDPBrowser as _LegacyRDPBrowser,
     _create_job_object,
     _get_default_binary,
@@ -199,7 +199,18 @@ class RDPBrowser(_LegacyRDPBrowser):
         return rdp_port, ws_port
 
     async def new_context(self, **overrides) -> RDPContext:
-        rdp_port, ws_port = await self._allocate_context_ports()
+        if "rdp_port" in overrides or "ws_port" in overrides:
+            rdp_port = overrides.get("rdp_port", self._rdp_port + 100 + self._context_counter + 1)
+            ws_port = overrides.get("ws_port", self._ws_port + 100 + self._context_counter + 1)
+            rdp_port = await _PORT_ALLOCATOR.reserve(rdp_port)
+            if ws_port == rdp_port:
+                ws_port = await _PORT_ALLOCATOR.find_and_reserve(ws_port + 1)
+            else:
+                ws_port = await _PORT_ALLOCATOR.reserve(ws_port)
+            self._context_counter += 1
+        else:
+            rdp_port, ws_port = await self._allocate_context_ports()
+
         child = RDPBrowser(
             executable_path=overrides.get("executable_path", self._executable),
             headless=overrides.get("headless", self._headless),
@@ -214,7 +225,14 @@ class RDPBrowser(_LegacyRDPBrowser):
             extension_dir=overrides.get("extension_dir", EXTENSION_DIR),
             fingerprint=overrides.get("fingerprint", self._fingerprint),
         )
-        await child.start()
+        child._ports_reserved = True
+        try:
+            await child.start()
+        except Exception:
+            await _PORT_ALLOCATOR.release(child._rdp_port)
+            await _PORT_ALLOCATOR.release(child._ws_port)
+            child._ports_reserved = False
+            raise
         context = RDPContext(self, child)
         self._contexts.append(context)
         return context

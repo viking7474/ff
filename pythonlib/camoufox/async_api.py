@@ -1,40 +1,4 @@
-import asyncio
-import json as _json
-import urllib.request
-from functools import partial
-from typing import Any, Dict, List, Optional, Union, overload
-from urllib.parse import urlparse
-
-from playwright.async_api import (
-    Browser,
-    BrowserContext,
-    Playwright,
-    PlaywrightContextManager,
-)
-from typing_extensions import Literal
-
-from camoufox.virtdisplay import VirtualDisplay
-
-from .fingerprints import generate_context_fingerprint
-from .pkgman import installed_verstr
-from .utils import async_attach_vd, launch_options
-
-
-class AsyncCamoufox(PlaywrightContextManager):
-    """
-    Wrapper around playwright.async_api.PlaywrightContextManager that automatically
-    launches a browser and closes it when the context manager is exited.
-    """
-
-    def __init__(self, **launch_options):
-        super().__init__()
-        self.launch_options = launch_options
-        self.browser: Optional[Union[Browser, BrowserContext]] = None
-
-    async def __aenter__(self) -> Union[Browser, BrowserContext]:
-        _playwright = await super().__aenter__()
-        self.browser = await AsyncNewBrowser(_playwright, **self.launch_options)
-        return self.browser
+from .legacy.async_api import *  # noqa: F401,F403
 
     async def __aexit__(self, *args: Any):
         if self.browser:

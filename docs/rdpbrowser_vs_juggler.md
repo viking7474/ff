@@ -105,3 +105,5 @@ See:
 3. debugging legacy branches or compatibility work
 
 It should not be treated as the default direction for new Python automation work in this branch.
+
+In the Python package layout, the old Playwright-centric path is being grouped under `camoufox.legacy`, while the active framework namespace is `winfox.rdp`.
