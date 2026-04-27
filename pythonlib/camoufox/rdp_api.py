@@ -4323,8 +4323,11 @@ class RDPBrowser:
 
 
 # Final low-risk rebind after all legacy class definitions in this file. This
-# ensures split modules for page-layer helpers win over the original in-file
-# definitions during runtime lookup.
+# ensures split modules for page-layer and browser-layer helpers win over the
+# original in-file definitions during runtime lookup.
+from winfox.rdp.browser import RDPBrowser as _SplitRDPBrowser  # noqa: E402
+
 RDPPage = _SplitRDPPage
 _Mouse = _SplitMouse
 _Keyboard = _SplitKeyboard
+RDPBrowser = _SplitRDPBrowser

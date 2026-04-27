@@ -14,7 +14,9 @@ That means:
 
 import asyncio
 import base64
+import inspect
 import json
+import logging
 import mimetypes
 import os
 import time
@@ -23,10 +25,17 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from camoufox.humanize import generate_path as _generate_path, hover_delay as _hover_delay
 from camoufox.rdp_api import RDPPage as _LegacyRDPPage
+from geckordp.actors.events import Events
 from geckordp.actors.root import RootActor
 from geckordp.actors.screenshot import ScreenshotActor
+from geckordp.actors.targets.window_global import WindowGlobalActor
+from geckordp.actors.web_console import WebConsoleActor
 
+from .dialog import RDPDialog
+from .frame import RDPFrame
 from .locator import _Locator
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from camoufox.rdp_api import RDPPage as _LegacyRDPPage
@@ -171,6 +180,69 @@ class RDPPage(_LegacyRDPPage):
     @property
     def url_cached(self) -> str:
         return self._url
+
+    def _make_event_payload(self, event: str, name: str = "", url: str = "") -> Dict[str, Any]:
+        return {
+            "event": event,
+            "name": name,
+            "url": url or self._url,
+            "page": self,
+            "tabId": self._tab_id,
+            "tabActorId": self._tab_actor_id,
+            "targetActorId": self._target_actor_id,
+            "browsingContextID": self._browsing_context_id,
+            "timestamp": int(time.time() * 1000),
+        }
+
+    def _emit_event(self, event: str, payload: Any) -> None:
+        signature = (
+            payload.get("url") if isinstance(payload, dict) else None,
+            payload.get("targetActorId") if isinstance(payload, dict) else None,
+            payload.get("browsingContextID") if isinstance(payload, dict) else None,
+        )
+        if self._last_emitted_event.get(event) == signature:
+            return
+        self._last_emitted_event[event] = signature
+        callbacks = list(self._event_listeners.get(event, []))
+        for callback in callbacks:
+            try:
+                result = callback(payload)
+                if inspect.isawaitable(result):
+                    self._loop.create_task(result)
+            except Exception:
+                logger.exception("Unhandled RDPPage event callback error for %s", event)
+
+    def _emit_event_threadsafe(self, event: str, payload: Any) -> None:
+        if self._closed:
+            return
+        self._loop.call_soon_threadsafe(self._emit_event, event, payload)
+
+    def _remember_network_event(self, signature: tuple) -> bool:
+        if signature in self._seen_network_events:
+            return False
+        self._seen_network_events.add(signature)
+        self._seen_network_event_order.append(signature)
+        if len(self._seen_network_event_order) > 1000:
+            old = self._seen_network_event_order.pop(0)
+            self._seen_network_events.discard(old)
+        return True
+
+    def _make_network_event_payload(self, event: str, item: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "event": event,
+            "state": item.get("state"),
+            "requestId": item.get("requestId"),
+            "url": item.get("url", ""),
+            "method": item.get("method", "GET"),
+            "headers": item.get("headers"),
+            "requestBody": item.get("body"),
+            "responseHeaders": item.get("responseHeaders"),
+            "responseBody": item.get("responseBody"),
+            "status": item.get("status"),
+            "error": item.get("error"),
+            "timestamp": item.get("timestamp"),
+            "page": self,
+        }
 
     async def url_fresh(self) -> str:
         self._ensure_open()
@@ -371,6 +443,840 @@ class RDPPage(_LegacyRDPPage):
     async def wait_until_visible(self, selector: str, timeout: int = 5000) -> None:
         self._ensure_open()
         await self.wait_for_selector(selector, state="visible", timeout=timeout)
+
+    async def get_local_storage(self) -> Dict[str, str]:
+        self._ensure_open()
+        result = await self.evaluate(
+            "JSON.stringify(Object.fromEntries(Object.keys(localStorage).map(k => [k, localStorage.getItem(k)])))"
+        )
+        if isinstance(result, str):
+            try:
+                return json.loads(result)
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return {}
+
+    async def set_local_storage(self, data: Dict[str, Any]) -> None:
+        self._ensure_open()
+        payload = json.dumps({str(k): "" if v is None else str(v) for k, v in data.items()})
+        await self.evaluate(
+            f"""
+            (() => {{
+              const data = {payload};
+              for (const [k, v] of Object.entries(data)) localStorage.setItem(k, v);
+              return true;
+            }})()
+            """
+        )
+
+    async def clear_local_storage(self) -> None:
+        self._ensure_open()
+        await self.evaluate("localStorage.clear(); true")
+
+    async def get_session_storage(self) -> Dict[str, str]:
+        self._ensure_open()
+        result = await self.evaluate(
+            "JSON.stringify(Object.fromEntries(Object.keys(sessionStorage).map(k => [k, sessionStorage.getItem(k)])))"
+        )
+        if isinstance(result, str):
+            try:
+                return json.loads(result)
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return {}
+
+    async def set_session_storage(self, data: Dict[str, Any]) -> None:
+        self._ensure_open()
+        payload = json.dumps({str(k): "" if v is None else str(v) for k, v in data.items()})
+        await self.evaluate(
+            f"""
+            (() => {{
+              const data = {payload};
+              for (const [k, v] of Object.entries(data)) sessionStorage.setItem(k, v);
+              return true;
+            }})()
+            """
+        )
+
+    async def clear_session_storage(self) -> None:
+        self._ensure_open()
+        await self.evaluate("sessionStorage.clear(); true")
+
+    async def save_storage_state(self) -> Dict[str, Any]:
+        self._ensure_open()
+        url = await self.url_fresh()
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else ""
+        return {
+            "origin": origin,
+            "localStorage": await self.get_local_storage(),
+            "sessionStorage": await self.get_session_storage(),
+        }
+
+    async def load_storage_state(self, state: Dict[str, Any]) -> Dict[str, int]:
+        self._ensure_open()
+        local_storage = state.get("localStorage", {}) if isinstance(state, dict) else {}
+        session_storage = state.get("sessionStorage", {}) if isinstance(state, dict) else {}
+        await self.clear_local_storage()
+        await self.clear_session_storage()
+        if local_storage:
+            await self.set_local_storage(local_storage)
+        if session_storage:
+            await self.set_session_storage(session_storage)
+        return {
+            "localStorage": len(local_storage),
+            "sessionStorage": len(session_storage),
+        }
+
+    async def expect_popup(self, timeout: int = 5000) -> "RDPPage":
+        self._ensure_open()
+        existing_pages = self._browser.list_pages()
+        try:
+            return await self._browser.wait_for_new_page(timeout=timeout, existing_pages=existing_pages)
+        except TimeoutError:
+            active = await self._browser.get_active_page()
+            if active and active is not self and not active.is_closed():
+                return active
+
+            previous_ids = {page._tab_actor_id for page in existing_pages if not page.is_closed()}
+            current_pages = self._browser.list_pages()
+            for page in current_pages:
+                if page is self or page.is_closed():
+                    continue
+                if page._tab_actor_id not in previous_ids:
+                    return page
+            raise
+
+    async def _enumerate_frames(self) -> List[Dict[str, Any]]:
+        self._ensure_open()
+        result = await self.evaluate(
+            """
+            (() => {
+              const out = [];
+              const walk = (doc, parentPath) => {
+                const frames = Array.from(doc.querySelectorAll('iframe, frame'));
+                frames.forEach((frame, index) => {
+                  const path = parentPath.concat(index);
+                  try {
+                    const childDoc = frame.contentWindow.document;
+                    out.push({
+                      index,
+                      path,
+                      parent_path: parentPath.length ? parentPath : null,
+                      depth: path.length - 1,
+                      name: frame.name || null,
+                      id: frame.id || null,
+                      src: frame.getAttribute('src') || null,
+                      url: frame.contentWindow.location.href,
+                      same_origin: true,
+                    });
+                    walk(childDoc, path);
+                  } catch (e) {
+                    out.push({
+                      index,
+                      path,
+                      parent_path: parentPath.length ? parentPath : null,
+                      depth: path.length - 1,
+                      name: frame.name || null,
+                      id: frame.id || null,
+                      src: frame.getAttribute('src') || null,
+                      url: null,
+                      same_origin: false,
+                    });
+                  }
+                });
+              };
+              walk(document, []);
+              return JSON.stringify(out);
+            })()
+            """
+        )
+        if isinstance(result, str):
+            try:
+                return json.loads(result)
+            except (json.JSONDecodeError, ValueError):
+                return []
+        return []
+
+    async def _frame_eval_body(self, path: List[int], body: str) -> Any:
+        self._ensure_open()
+        path_json = json.dumps(path)
+        result = await self.evaluate(
+            f"""
+            (() => {{
+              const path = {path_json};
+              try {{
+                let frame = null;
+                let win = window;
+                let doc = document;
+                for (const idx of path) {{
+                  frame = doc.querySelectorAll('iframe, frame')[idx];
+                  if (!frame) return JSON.stringify({{ ok: false, error: 'frame-not-found' }});
+                  win = frame.contentWindow;
+                  doc = win.document;
+                }}
+                const result = (() => {{ {body} }})();
+                return JSON.stringify({{ ok: true, value: result }});
+              }} catch (e) {{
+                return JSON.stringify({{ ok: false, error: 'cross-origin-frame' }});
+              }}
+            }})()
+            """
+        )
+        if isinstance(result, str):
+            try:
+                payload = json.loads(result)
+            except (json.JSONDecodeError, ValueError):
+                payload = None
+            if isinstance(payload, dict):
+                if not payload.get("ok"):
+                    error = payload.get("error", "unknown")
+                    if error == "cross-origin-frame":
+                        raise RuntimeError("Cross-origin frame access is not supported")
+                    raise RuntimeError(f"Frame evaluation failed: {error}")
+                return payload.get("value")
+        return result
+
+    async def _frame_evaluate(self, path: List[int], expression: str) -> Any:
+        self._ensure_open()
+        expr = expression.strip()
+        auto_called = False
+        if (
+            expr.startswith("() =>")
+            or expr.startswith("async () =>")
+            or expr.startswith("function")
+        ) and not expr.endswith("()"):
+            expr = f"({expr})()"
+            auto_called = True
+        expr_json = json.dumps(expr)
+        path_json = json.dumps(path)
+        result = await self.evaluate(
+            f"""
+            (() => {{
+              try {{
+                const path = {path_json};
+                let frame = null;
+                let win = window;
+                let doc = document;
+                for (const idx of path) {{
+                  frame = doc.querySelectorAll('iframe, frame')[idx];
+                  if (!frame) return JSON.stringify({{ ok: false, error: 'frame-not-found' }});
+                  win = frame.contentWindow;
+                  doc = win.document;
+                }}
+                let value = win.eval({expr_json});
+                if ({str(auto_called).lower()} && typeof value === 'object' && value !== null) {{
+                  return JSON.stringify({{ ok: true, object: true, value: JSON.stringify(value) }});
+                }}
+                if (typeof value === 'undefined') {{
+                  return JSON.stringify({{ ok: true, value: null, undefined: true }});
+                }}
+                return JSON.stringify({{ ok: true, object: false, value }});
+              }} catch (e) {{
+                return JSON.stringify({{ ok: false, error: 'cross-origin-frame' }});
+              }}
+            }})()
+            """
+        )
+        if isinstance(result, str):
+            try:
+                payload = json.loads(result)
+            except (json.JSONDecodeError, ValueError):
+                payload = None
+            if isinstance(payload, dict):
+                if not payload.get("ok"):
+                    error = payload.get("error", "unknown")
+                    if error == "cross-origin-frame":
+                        raise RuntimeError("Cross-origin frame access is not supported")
+                    raise RuntimeError(f"Frame evaluation failed: {error}")
+                if payload.get("object") and isinstance(payload.get("value"), str):
+                    try:
+                        return json.loads(payload["value"])
+                    except (json.JSONDecodeError, ValueError):
+                        return payload["value"]
+                return payload.get("value")
+        return result
+
+    async def frames(self) -> List[RDPFrame]:
+        self._ensure_open()
+        metadata = await self._enumerate_frames()
+        return [RDPFrame(self, item) for item in metadata]
+
+    async def child_frames(self, path: Optional[List[int]] = None) -> List[RDPFrame]:
+        self._ensure_open()
+        parent_path = path if path is not None else None
+        frames = await self.frames()
+        return [frame for frame in frames if frame.parent_path == parent_path]
+
+    async def frame(
+        self,
+        index: Optional[int] = None,
+        name: Optional[str] = None,
+        url_contains: Optional[str] = None,
+        path: Optional[List[int]] = None,
+    ) -> Optional[RDPFrame]:
+        self._ensure_open()
+        for frame in await self.frames():
+            if index is not None and frame.index != index:
+                continue
+            if path is not None and frame.path != path:
+                continue
+            if name is not None and frame.name != name:
+                continue
+            if url_contains is not None and (not frame.url or url_contains not in frame.url):
+                continue
+            return frame
+        return None
+
+    async def _ensure_dialog_shim(self) -> None:
+        if self._dialog_shim_ready:
+            return
+        await self.evaluate(
+            """
+            (() => {
+              if (window.__rdpDialogState) return true;
+              const state = {
+                dialogs: [],
+                nextId: 1,
+                auto: { confirm: true, prompt: '' },
+              };
+              const pushDialog = (type, message, defaultValue = null) => {
+                const id = state.nextId++;
+                state.dialogs.push({
+                  id,
+                  type,
+                  message: String(message ?? ''),
+                  defaultValue,
+                  handled: false,
+                  accepted: null,
+                  promptText: null,
+                  timestamp: Date.now(),
+                });
+                return id;
+              };
+              window.__rdpDialogState = state;
+              window.alert = function(message) {
+                pushDialog('alert', message, null);
+                return undefined;
+              };
+              window.confirm = function(message) {
+                pushDialog('confirm', message, null);
+                return state.auto.confirm;
+              };
+              window.prompt = function(message, defaultValue = '') {
+                pushDialog('prompt', message, defaultValue == null ? '' : String(defaultValue));
+                return state.auto.prompt;
+              };
+              return true;
+            })()
+            """
+        )
+        self._dialog_shim_ready = True
+
+    async def _resolve_dialog(self, dialog_id: int, accepted: bool, prompt_text: Optional[str]) -> Optional[Dict[str, Any]]:
+        self._ensure_open()
+        await self._ensure_dialog_shim()
+        prompt_value = "null" if prompt_text is None else json.dumps(prompt_text)
+        result = await self.evaluate(
+            f"""
+            (() => {{
+              const state = window.__rdpDialogState;
+              if (!state) return null;
+              const dialog = state.dialogs.find(d => d.id === {dialog_id});
+              if (!dialog) return null;
+              dialog.handled = {str(True).lower()};
+              dialog.accepted = {str(accepted).lower()};
+              dialog.promptText = {prompt_value};
+              if (dialog.type === 'confirm') state.auto.confirm = {str(accepted).lower()};
+              if (dialog.type === 'prompt' && {prompt_value} !== null) state.auto.prompt = {prompt_value};
+              return JSON.stringify(dialog);
+            }})()
+            """
+        )
+        if isinstance(result, str) and result:
+            try:
+                return json.loads(result)
+            except (json.JSONDecodeError, ValueError):
+                return None
+        return None
+
+    async def expect_dialog(self, timeout: int = 5000) -> RDPDialog:
+        self._ensure_open()
+        await self._ensure_dialog_shim()
+        deadline = time.time() + (timeout / 1000)
+        while time.time() < deadline:
+            result = await self.evaluate(
+                f"""
+                (() => {{
+                  const state = window.__rdpDialogState;
+                  if (!state) return null;
+                  const dialog = state.dialogs.find(d => d.id > {self._dialog_last_id});
+                  return dialog ? JSON.stringify(dialog) : null;
+                }})()
+                """
+            )
+            if isinstance(result, str) and result:
+                try:
+                    dialog = json.loads(result)
+                except (json.JSONDecodeError, ValueError):
+                    dialog = None
+                if dialog:
+                    self._dialog_last_id = max(self._dialog_last_id, dialog.get("id", 0))
+                    return RDPDialog(
+                        self,
+                        dialog_id=dialog.get("id", 0),
+                        dialog_type=dialog.get("type", "alert"),
+                        message=dialog.get("message", ""),
+                        default_value=dialog.get("defaultValue"),
+                    )
+            await asyncio.sleep(0.1)
+        raise TimeoutError(f"Dialog not observed within {timeout}ms")
+
+    async def screenshot(self, path: Optional[str] = None) -> bytes:
+        self._ensure_open()
+        if self._bridge and self._bridge.is_connected:
+            result = await self._bridge.send_command("screenshot", {})
+            if result and result.get("dataUrl"):
+                b64 = result["dataUrl"].split(",", 1)[1] if "," in result["dataUrl"] else result["dataUrl"]
+                data = base64.b64decode(b64)
+                if path:
+                    with open(path, "wb") as f:
+                        f.write(data)
+                return data
+
+        def _capture():
+            root = RootActor(self._client)
+            root_data = root.get_root()
+            sa_id = root_data.get("screenshotActor", "")
+            if not sa_id:
+                return b""
+            sa = ScreenshotActor(self._client, sa_id)
+            result = sa.capture(self._browsing_context_id or 0)
+            b64_data = (
+                result.get("value", {}).get("data", "")
+                if isinstance(result.get("value"), dict)
+                else result.get("value", "")
+            )
+            if isinstance(b64_data, str) and b64_data:
+                b64_data = b64_data.replace("data:image/png;base64,", "")
+                return base64.b64decode(b64_data)
+            return b""
+
+        data = await asyncio.to_thread(_capture)
+        if path and data:
+            with open(path, "wb") as f:
+                f.write(data)
+        return data
+
+    async def _ensure_network_event_bridge(self) -> None:
+        if self._network_events_started:
+            return
+        if not self._bridge or not self._bridge.is_connected:
+            raise ConnectionError("Extension bridge not connected")
+        await self._bridge.send_command("startSpy", {"patterns": ["http"]}, timeout=10)
+        await self._bridge.send_command("startCapture", {"patterns": ["http"]}, timeout=10)
+        self._request_event_ts = int(time.time() * 1000)
+        self._spy_event_ts = self._request_event_ts
+        self._network_events_started = True
+        self._network_event_task = self._loop.create_task(self._network_event_poller())
+
+    async def _network_event_poller(self) -> None:
+        try:
+            while not self._closed:
+                if not self._bridge or not self._bridge.is_connected:
+                    await asyncio.sleep(0.2)
+                    continue
+
+                request_result = await self._bridge.send_command("getRequestEvents", {"since": self._request_event_ts}, timeout=5)
+                requests = request_result.get("requests", []) if request_result else []
+                for req in requests:
+                    self._request_event_ts = max(self._request_event_ts, req.get("timestamp", 0))
+                    signature = (req.get("requestId"), "request", req.get("timestamp", 0))
+                    if not self._remember_network_event(signature):
+                        continue
+                    payload = self._make_network_event_payload("request", req)
+                    payload["state"] = payload["state"] or "request"
+                    self._emit_event("request", payload)
+
+                spy_result = await self._bridge.send_command("getSpiedRequests", {"since": self._spy_event_ts}, timeout=5)
+                network_events = spy_result.get("requests", []) if spy_result else []
+                for item in network_events:
+                    self._spy_event_ts = max(self._spy_event_ts, item.get("timestamp", 0))
+                    state = item.get("state")
+                    signature = (item.get("requestId"), state, item.get("timestamp", 0))
+                    if not self._remember_network_event(signature):
+                        continue
+                    response_payload = self._make_network_event_payload("response", item)
+                    if state == "failed":
+                        self._emit_event("requestfailed", {**response_payload, "event": "requestfailed", "error": item.get("error")})
+                        continue
+                    self._emit_event("response", response_payload)
+                    self._emit_event("requestfinished", {**response_payload, "event": "requestfinished", "state": "finished"})
+
+                await asyncio.sleep(0.2)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("RDPBrowser network event poller failed")
+
+    def on(self, event: str, callback) -> None:
+        self._ensure_open()
+        self._event_listeners.setdefault(event, []).append(callback)
+        if event in {"request", "response", "requestfinished", "requestfailed"}:
+            self._loop.create_task(self._ensure_network_event_bridge())
+        logger.debug("Event listener registered: %s", event)
+
+    def remove_listener(self, event: str, callback) -> None:
+        self._ensure_open()
+        if event in self._event_listeners:
+            try:
+                self._event_listeners[event].remove(callback)
+                if not self._event_listeners[event]:
+                    self._event_listeners.pop(event, None)
+            except ValueError:
+                pass
+
+    async def goto(self, url: str, wait_until: str = "load", timeout: int = 30000) -> None:
+        self._ensure_open()
+        async with self._nav_lock:
+            await self._goto_impl(url, wait_until=wait_until, timeout=timeout)
+
+    async def _goto_impl(self, url: str, wait_until: str = "load", timeout: int = 30000) -> None:
+        loop = asyncio.get_running_loop()
+        load_done = asyncio.Event()
+        deadline = time.time() + (timeout / 1000)
+        console_listeners: list = []
+
+        goal = "dom-complete" if wait_until in ("load", "networkidle") else "dom-interactive"
+
+        def _on_doc_event(data):
+            logger.debug(f"goto DOCUMENT_EVENT: {data}")
+            name = data.get("name", "")
+            evt_url = data.get("url", "")
+            if evt_url:
+                self._url = evt_url
+            payload = {"name": name, "url": evt_url, "page": self}
+            if name == "dom-interactive":
+                self._emit_event_threadsafe("domcontentloaded", payload)
+            if name == "dom-complete":
+                self._emit_event_threadsafe("load", payload)
+            if name == goal or name == "dom-complete":
+                loop.call_soon_threadsafe(load_done.set)
+
+        def _attach_console_listener(console_id):
+            WebConsoleActor(self._client, console_id).start_listeners([WebConsoleActor.Listeners.DOCUMENT_EVENTS])
+            self._client.add_event_listener(console_id, Events.WebConsole.DOCUMENT_EVENT, _on_doc_event)
+            console_listeners.append(console_id)
+
+        await asyncio.to_thread(lambda: _attach_console_listener(self._console_actor_id))
+        self._console_started = True
+
+        try:
+            ver_before = self._target_ver
+            navigated = False
+            if self._bridge and self._bridge.is_connected and self._tab_id is not None:
+                try:
+                    await self._bridge.send_command("navigate", {"tabId": self._tab_id, "url": url})
+                    navigated = True
+                except Exception:
+                    pass
+
+            if not navigated:
+                await asyncio.to_thread(
+                    lambda: self._client.send_receive(
+                        {
+                            "to": self._tab_actor_id,
+                            "type": "navigateTo",
+                            "url": url,
+                            "waitForLoad": False,
+                        }
+                    )
+                )
+            self._url = url
+            self._console_started = False
+
+            last_target_ver = ver_before
+            nav_started = False
+
+            async with self._with_idle_mouse():
+                while time.time() < deadline:
+                    if load_done.is_set():
+                        return
+
+                    if self._target_ver > last_target_ver:
+                        last_target_ver = self._target_ver
+                        nav_started = True
+                        await asyncio.to_thread(lambda: _attach_console_listener(self._console_actor_id))
+                        self._console_started = True
+
+                        if load_done.is_set():
+                            return
+                        try:
+                            state = await self.evaluate("document.readyState")
+                            if state == "complete" or (goal == "dom-interactive" and state in ("interactive", "complete")):
+                                return
+                        except Exception:
+                            pass
+                        continue
+
+                    remaining = max(0.1, deadline - time.time())
+                    try:
+                        await asyncio.wait_for(load_done.wait(), timeout=min(1.0, remaining))
+                        return
+                    except asyncio.TimeoutError:
+                        try:
+                            state = await self.evaluate("document.readyState")
+                            if state in ("loading", "interactive"):
+                                nav_started = True
+                            if nav_started and (state == "complete" or (goal == "dom-interactive" and state in ("interactive", "complete"))):
+                                return
+                        except Exception:
+                            nav_started = True
+        finally:
+            for cid in console_listeners:
+                try:
+                    self._client.remove_event_listener(cid, Events.WebConsole.DOCUMENT_EVENT, _on_doc_event)
+                except Exception:
+                    pass
+
+        try:
+            import random as _r
+
+            await self.mouse._raw_move(self.mouse._x, self.mouse._y)
+            drift_x = self.mouse._x + _r.uniform(-80, 80)
+            drift_y = self.mouse._y + _r.uniform(-60, 60)
+            drift_x = max(50, min(drift_x, 1800))
+            drift_y = max(50, min(drift_y, 900))
+            await self.mouse.move_smooth(drift_x, drift_y)
+        except Exception:
+            pass
+
+    async def _wait_for_doc_event(self, goal: str = "dom-complete", timeout_s: float = 30.0) -> None:
+        self._ensure_open()
+        loop = asyncio.get_running_loop()
+        done = asyncio.Event()
+        console_id = self._console_actor_id
+
+        def _on_evt(data):
+            name = data.get("name", "")
+            evt_url = data.get("url", "")
+            if evt_url:
+                self._url = evt_url
+            payload = self._make_event_payload(
+                "domcontentloaded" if name == "dom-interactive" else "load",
+                name=name,
+                url=evt_url,
+            )
+            if name == "dom-interactive":
+                self._emit_event_threadsafe("domcontentloaded", payload)
+            if name == "dom-complete":
+                self._emit_event_threadsafe("load", payload)
+            if name == goal or name == "dom-complete":
+                loop.call_soon_threadsafe(done.set)
+
+        await asyncio.to_thread(lambda: WebConsoleActor(self._client, console_id).start_listeners([WebConsoleActor.Listeners.DOCUMENT_EVENTS]))
+        self._console_started = True
+        self._client.add_event_listener(console_id, Events.WebConsole.DOCUMENT_EVENT, _on_evt)
+        try:
+            async with self._with_idle_mouse():
+                await asyncio.wait_for(done.wait(), timeout=timeout_s)
+        except asyncio.TimeoutError:
+            pass
+        finally:
+            try:
+                self._client.remove_event_listener(console_id, Events.WebConsole.DOCUMENT_EVENT, _on_evt)
+            except Exception:
+                pass
+
+    async def reload(self, timeout: int = 30000) -> None:
+        self._ensure_open()
+        async with self._nav_lock:
+            await self._reload_impl(timeout=timeout)
+
+    async def _reload_impl(self, timeout: int = 30000) -> None:
+        loop = asyncio.get_running_loop()
+        goal = "dom-complete"
+        timeout_s = timeout / 1000
+        done = asyncio.Event()
+        console_id = self._console_actor_id
+
+        def _on_evt(data):
+            name = data.get("name", "")
+            evt_url = data.get("url", "")
+            if evt_url:
+                self._url = evt_url
+            payload = self._make_event_payload(
+                "domcontentloaded" if name == "dom-interactive" else "load",
+                name=name,
+                url=evt_url,
+            )
+            if name == "dom-interactive":
+                self._emit_event_threadsafe("domcontentloaded", payload)
+            if name == "dom-complete":
+                self._emit_event_threadsafe("load", payload)
+            if name == goal or name == "dom-complete":
+                loop.call_soon_threadsafe(done.set)
+
+        await asyncio.to_thread(lambda: WebConsoleActor(self._client, console_id).start_listeners([WebConsoleActor.Listeners.DOCUMENT_EVENTS]))
+        self._console_started = True
+        self._client.add_event_listener(console_id, Events.WebConsole.DOCUMENT_EVENT, _on_evt)
+
+        try:
+            await asyncio.to_thread(lambda: WindowGlobalActor(self._client, self._target_actor_id).reload())
+            self._console_started = False
+            async with self._with_idle_mouse():
+                await asyncio.wait_for(done.wait(), timeout=timeout_s)
+        except asyncio.TimeoutError:
+            pass
+        finally:
+            try:
+                self._client.remove_event_listener(console_id, Events.WebConsole.DOCUMENT_EVENT, _on_evt)
+            except Exception:
+                pass
+
+    async def wait_for_load_state(self, state: str = "load", timeout: int = 30000) -> None:
+        self._ensure_open()
+        async with self._nav_lock:
+            await self._wait_for_load_state_impl(state=state, timeout=timeout)
+
+    async def _wait_for_load_state_impl(self, state: str = "load", timeout: int = 30000) -> None:
+        target = "complete" if state in ("load", "networkidle") else "interactive"
+        try:
+            current = await self.evaluate("document.readyState")
+            if current == target or current == "complete":
+                return
+        except Exception:
+            pass
+        goal = "dom-complete" if state in ("load", "networkidle") else "dom-interactive"
+        await self._wait_for_doc_event(goal=goal, timeout_s=timeout / 1000)
+
+    async def start_capture(self, patterns: list) -> None:
+        self._ensure_open()
+        if not self._bridge or not self._bridge.is_connected:
+            raise ConnectionError("Extension bridge not connected")
+        await self._bridge.send_command("startCapture", {"patterns": patterns})
+        self._capture_ts = int(time.time() * 1000)
+        logger.info(f"Network capture started for patterns: {patterns}")
+
+    async def stop_capture(self) -> None:
+        self._ensure_open()
+        if self._bridge and self._bridge.is_connected:
+            await self._bridge.send_command("stopCapture", {})
+
+    async def get_captured_responses(self, clear: bool = True) -> list:
+        self._ensure_open()
+        if not self._bridge or not self._bridge.is_connected:
+            return []
+        since = getattr(self, "_capture_ts", 0)
+        result = await self._bridge.send_command("getCapturedResponses", {"since": since})
+        responses = result.get("responses", []) if result else []
+        if clear and responses:
+            await self._bridge.send_command("clearCaptures", {})
+        return responses
+
+    async def wait_for_response(self, url_pattern: str, timeout: float = 30.0) -> Optional[dict]:
+        self._ensure_open()
+        deadline = time.time() + timeout
+        since = getattr(self, "_capture_ts", 0)
+        while time.time() < deadline:
+            if self._bridge and self._bridge.is_connected:
+                result = await self._bridge.send_command("getCapturedResponses", {"since": since})
+                responses = result.get("responses", []) if result else []
+                for r in responses:
+                    if url_pattern in r.get("url", ""):
+                        return r
+            await asyncio.sleep(0.5)
+        return None
+
+    async def start_spy(self, patterns: list) -> None:
+        self._ensure_open()
+        if not self._bridge or not self._bridge.is_connected:
+            raise ConnectionError("Extension bridge not connected")
+        await self._bridge.send_command("startSpy", {"patterns": patterns})
+        self._spy_ts = int(time.time() * 1000)
+        logger.info(f"Request spy started for patterns: {patterns}")
+
+    async def stop_spy(self) -> None:
+        self._ensure_open()
+        if self._bridge and self._bridge.is_connected:
+            await self._bridge.send_command("stopSpy", {})
+
+    async def get_spied_requests(self, clear: bool = False) -> list:
+        self._ensure_open()
+        if not self._bridge or not self._bridge.is_connected:
+            return []
+        since = getattr(self, "_spy_ts", 0)
+        result = await self._bridge.send_command("getSpiedRequests", {"since": since})
+        requests = result.get("requests", []) if result else []
+        if clear and requests:
+            await self._bridge.send_command("clearSpied", {})
+        return requests
+
+    async def _apply_interception_rules(self) -> Dict[str, Any]:
+        self._ensure_open()
+        if not self._bridge or not self._bridge.is_connected:
+            raise ConnectionError("Extension bridge not connected")
+        return await self._bridge.send_command(
+            "setInterception",
+            {
+                "blockPatterns": list(self._interception_block_patterns),
+                "headerRules": list(self._interception_header_rules),
+                "fulfillRules": list(self._interception_fulfill_rules),
+            },
+            timeout=10,
+        )
+
+    async def set_request_block_patterns(self, patterns: List[str]) -> Dict[str, Any]:
+        self._ensure_open()
+        self._interception_block_patterns = list(patterns)
+        return await self._apply_interception_rules()
+
+    async def set_extra_http_headers(self, headers: Dict[str, Any], patterns: Optional[List[str]] = None) -> Dict[str, Any]:
+        self._ensure_open()
+        self._interception_header_rules = [{"patterns": patterns or ["http"], "headers": {str(k): str(v) for k, v in headers.items()}}]
+        return await self._apply_interception_rules()
+
+    async def clear_interception(self) -> Dict[str, Any]:
+        self._ensure_open()
+        self._interception_block_patterns = []
+        self._interception_header_rules = []
+        self._interception_fulfill_rules = []
+        if not self._bridge or not self._bridge.is_connected:
+            raise ConnectionError("Extension bridge not connected")
+        return await self._bridge.send_command("clearInterception", {}, timeout=10)
+
+    async def bg_fetch(
+        self,
+        url: str,
+        method: str = "GET",
+        headers: Optional[Dict[str, Any]] = None,
+        max_body: int = 100000,
+    ) -> Dict[str, Any]:
+        self._ensure_open()
+        if not self._bridge or not self._bridge.is_connected:
+            raise ConnectionError("Extension bridge not connected")
+        result = await self._bridge.send_command(
+            "bgFetch",
+            {
+                "url": url,
+                "method": method,
+                "headers": headers or {},
+                "maxBody": max_body,
+            },
+            timeout=20,
+        )
+        return result or {}
+
+    async def fulfill_text(self, patterns: List[str], body: str, content_type: str = "text/plain") -> Dict[str, Any]:
+        self._ensure_open()
+        self._interception_fulfill_rules = [{"patterns": list(patterns), "body": str(body), "contentType": str(content_type)}]
+        return await self._apply_interception_rules()
+
+    async def fulfill_json(self, patterns: List[str], data: Any) -> Dict[str, Any]:
+        self._ensure_open()
+        return await self.fulfill_text(patterns, json.dumps(data), content_type="application/json")
 
     async def click(self, selector: str) -> None:
         self._ensure_open()
