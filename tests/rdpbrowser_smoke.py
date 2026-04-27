@@ -4,7 +4,7 @@ import tempfile
 import traceback
 from pathlib import Path
 
-from camoufox.rdp_api import RDPBrowser
+from winfox.rdp import RDPBrowser
 
 
 if os.name == "nt":

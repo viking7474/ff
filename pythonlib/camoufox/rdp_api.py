@@ -163,6 +163,53 @@ def _port_bindable(host: str, port: int) -> bool:
             pass
 
 
+class _PortAllocator:
+    """Process-local port allocator for RDPBrowser instances.
+
+    This is not a distributed allocator across multiple independent Python
+    processes, but it removes the common race where two browser/context
+    launches inside the same app both observe the same port as free before
+    binding it.
+    """
+
+    def __init__(self):
+        self._lock = asyncio.Lock()
+        self._reserved: set[int] = set()
+
+    async def reserve(self, port: int) -> int:
+        async with self._lock:
+            if port in self._reserved:
+                raise RuntimeError(f"Port already reserved in allocator: {port}")
+            bindable = await asyncio.to_thread(_port_bindable, "127.0.0.1", port)
+            if not bindable:
+                raise RuntimeError(f"Port is not available: {port}")
+            self._reserved.add(port)
+            return port
+
+    async def find_and_reserve(self, start_port: int, limit: int = 500) -> int:
+        async with self._lock:
+            port = start_port
+            while port < start_port + limit:
+                if port in self._reserved:
+                    port += 1
+                    continue
+                bindable = await asyncio.to_thread(_port_bindable, "127.0.0.1", port)
+                if bindable:
+                    self._reserved.add(port)
+                    return port
+                port += 1
+            raise RuntimeError(f"Unable to find available port near {start_port}")
+
+    async def release(self, port: Optional[int]) -> None:
+        if port is None:
+            return
+        async with self._lock:
+            self._reserved.discard(port)
+
+
+_PORT_ALLOCATOR = _PortAllocator()
+
+
 async def _wait_for_port(host: str, port: int, timeout: float = 60.0) -> None:
     """Wait for a TCP port to accept connections. Uses sync socket in thread for Windows compatibility."""
     deadline = time.time() + timeout
@@ -3516,6 +3563,7 @@ class RDPBrowser:
         self._pages_by_tab_id: Dict[int, RDPPage] = {}
         self._contexts: List[RDPContext] = []
         self._context_counter = 0
+        self._ports_reserved = False
 
     async def _get_active_tab_id(self) -> Optional[int]:
         if self._bridge and self._bridge.is_connected:
@@ -3602,13 +3650,7 @@ class RDPBrowser:
             pass
 
     async def _find_available_port(self, start_port: int) -> int:
-        port = start_port
-        while port < start_port + 500:
-            bindable = await asyncio.to_thread(_port_bindable, "127.0.0.1", port)
-            if bindable:
-                return port
-            port += 1
-        raise RuntimeError(f"Unable to find available port near {start_port}")
+        return await _PORT_ALLOCATOR.find_and_reserve(start_port)
 
     async def _allocate_context_ports(self) -> tuple[int, int]:
         self._context_counter += 1
@@ -3892,6 +3934,14 @@ class RDPBrowser:
         return ext_copy
 
     async def start(self) -> None:
+        if not self._ports_reserved:
+            self._rdp_port = await _PORT_ALLOCATOR.reserve(self._rdp_port)
+            if self._ws_port == self._rdp_port:
+                self._ws_port = await _PORT_ALLOCATOR.find_and_reserve(self._ws_port + 1)
+            else:
+                self._ws_port = await _PORT_ALLOCATOR.reserve(self._ws_port)
+            self._ports_reserved = True
+
         if not self._profile_path:
             self._profile_path = tempfile.mkdtemp(prefix="camou_rdp_")
             self._temp_profile = True
@@ -4230,5 +4280,10 @@ class RDPBrowser:
                     shutil.rmtree(d, ignore_errors=True)
                 except Exception:
                     pass
+
+        if self._ports_reserved:
+            await _PORT_ALLOCATOR.release(self._rdp_port)
+            await _PORT_ALLOCATOR.release(self._ws_port)
+            self._ports_reserved = False
 
         logger.info("RDPBrowser closed")

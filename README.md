@@ -22,6 +22,9 @@ Winfox is an open source anti-detect browser for robust fingerprint injection & 
 > The repository also ships a working Firefox RDP automation path for Python. See `docs/rdpbrowser.md`, `docs/rdpbrowser_v1_capability_matrix.md`, `docs/rdpbrowser_vs_juggler.md`, and `tests/rdpbrowser_smoke.py`.
 
 > [!NOTE]
+> The active Python namespace for the new RDP automation framework is `winfox.rdp`.
+
+> [!NOTE]
 > Browser development is active at [github.com/CloverLabsAI/camoufox](https://github.com/CloverLabsAI/camoufox). ([See activity](https://github.com/CloverLabsAI/camoufox/activity))<br>
 
 > [!NOTE] 

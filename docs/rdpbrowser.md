@@ -65,7 +65,7 @@ python -m pip install geckordp websockets
 ```python
 import asyncio
 
-from camoufox.rdp_api import RDPBrowser
+from winfox.rdp import RDPBrowser
 
 
 async def main():
@@ -91,7 +91,7 @@ asyncio.run(main())
 ```python
 import asyncio
 
-from camoufox.rdp_api import RDPBrowser
+from winfox.rdp import RDPBrowser
 
 
 async def main():

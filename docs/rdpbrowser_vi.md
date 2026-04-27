@@ -17,7 +17,7 @@ Huong nay duoc dung nhu Python automation path chinh trong repo hien tai.
 ```python
 import asyncio
 
-from camoufox.rdp_api import RDPBrowser
+from winfox.rdp import RDPBrowser
 
 
 async def main():

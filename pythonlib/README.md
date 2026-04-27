@@ -10,7 +10,7 @@
 > The historical Playwright-oriented Python surface in this package should be treated as legacy in this repository.
 
 > [!NOTE]
-> The repository now has a working Python automation path based on `RDPBrowser` (Firefox RDP + extension bridge). For that path, see `docs/rdpbrowser.md` and `tests/rdpbrowser_smoke.py`.
+> The repository now has a working Python automation path based on `RDPBrowser` (Firefox RDP + extension bridge). The active framework namespace for that path is `winfox.rdp`. For that path, see `docs/rdpbrowser.md` and `tests/rdpbrowser_smoke.py`.
 
 ---
 
