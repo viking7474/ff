@@ -165,6 +165,9 @@ class RDPPage(_LegacyRDPPage):
     the canonical home for page-layer concepts.
     """
 
+    async def _ensure_bridge_ready(self, timeout: float = 10.0) -> bool:
+        return await self._browser._ensure_bridge_connected(timeout=timeout)
+
     @property
     def url(self) -> str:
         if self._closed:
@@ -1154,6 +1157,7 @@ class RDPPage(_LegacyRDPPage):
 
     async def start_capture(self, patterns: list) -> None:
         self._ensure_open()
+        await self._ensure_bridge_ready(timeout=5.0)
         if not self._bridge or not self._bridge.is_connected:
             raise ConnectionError("Extension bridge not connected")
         await self._bridge.send_command("startCapture", {"patterns": patterns})
@@ -1192,6 +1196,7 @@ class RDPPage(_LegacyRDPPage):
 
     async def start_spy(self, patterns: list) -> None:
         self._ensure_open()
+        await self._ensure_bridge_ready(timeout=5.0)
         if not self._bridge or not self._bridge.is_connected:
             raise ConnectionError("Extension bridge not connected")
         await self._bridge.send_command("startSpy", {"patterns": patterns})
@@ -1216,6 +1221,7 @@ class RDPPage(_LegacyRDPPage):
 
     async def _apply_interception_rules(self) -> Dict[str, Any]:
         self._ensure_open()
+        await self._ensure_bridge_ready(timeout=5.0)
         if not self._bridge or not self._bridge.is_connected:
             raise ConnectionError("Extension bridge not connected")
         return await self._bridge.send_command(
@@ -1243,6 +1249,7 @@ class RDPPage(_LegacyRDPPage):
         self._interception_block_patterns = []
         self._interception_header_rules = []
         self._interception_fulfill_rules = []
+        await self._ensure_bridge_ready(timeout=5.0)
         if not self._bridge or not self._bridge.is_connected:
             raise ConnectionError("Extension bridge not connected")
         return await self._bridge.send_command("clearInterception", {}, timeout=10)
@@ -1255,6 +1262,7 @@ class RDPPage(_LegacyRDPPage):
         max_body: int = 100000,
     ) -> Dict[str, Any]:
         self._ensure_open()
+        await self._ensure_bridge_ready(timeout=5.0)
         if not self._bridge or not self._bridge.is_connected:
             raise ConnectionError("Extension bridge not connected")
         result = await self._bridge.send_command(
@@ -1281,8 +1289,9 @@ class RDPPage(_LegacyRDPPage):
     async def _ensure_network_event_bridge(self) -> None:
         if self._network_events_started:
             return
+        await self._ensure_bridge_ready(timeout=5.0)
         if not self._bridge or not self._bridge.is_connected:
-            raise ConnectionError("Extension bridge not connected")
+            return
         await self._bridge.send_command("startSpy", {"patterns": ["http"]}, timeout=10)
         await self._bridge.send_command("startCapture", {"patterns": ["http"]}, timeout=10)
         self._request_event_ts = int(time.time() * 1000)
@@ -1351,7 +1360,13 @@ class RDPPage(_LegacyRDPPage):
         self._ensure_open()
         self._event_listeners.setdefault(event, []).append(callback)
         if event in {"request", "response", "requestfinished", "requestfailed"}:
-            self._loop.create_task(self._ensure_network_event_bridge())
+            async def _safe_start():
+                try:
+                    await self._ensure_network_event_bridge()
+                except Exception:
+                    logger.debug("Network event bridge unavailable for page.on(%s)", event)
+
+            self._loop.create_task(_safe_start())
         logger.debug("Event listener registered: %s", event)
 
     def remove_listener(self, event: str, callback) -> None:
@@ -1404,6 +1419,7 @@ class RDPPage(_LegacyRDPPage):
 
     async def fill(self, selector: str, text: str) -> None:
         self._ensure_open()
+        await self._ensure_bridge_ready(timeout=5.0)
         await self.click(selector)
         await asyncio.sleep(0.1)
         selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
@@ -1426,7 +1442,23 @@ class RDPPage(_LegacyRDPPage):
         if self._bridge and self._bridge.is_connected and self._tab_id is not None:
             await self._bridge.send_command("type", {"tabId": self._tab_id, "text": text})
         else:
-            raise ConnectionError("Extension bridge not connected, cannot fill with trusted events")
+            selector_escaped = selector.replace("\\", "\\\\").replace("'", "\\'")
+            text_escaped = text.replace("\\", "\\\\").replace("'", "\\'")
+            await self.evaluate(
+                f"""
+                (function() {{
+                  const el = document.querySelector('{selector_escaped}');
+                  if (!el) return false;
+                  if ('value' in el) {{
+                    el.value = '{text_escaped}';
+                    el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    return true;
+                  }}
+                  return false;
+                }})()
+                """
+            )
 
     async def set_input_files(self, selector: str, paths) -> int:
         self._ensure_open()

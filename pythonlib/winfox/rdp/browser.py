@@ -102,8 +102,10 @@ class RDPBrowser(_LegacyRDPBrowser):
         self._contexts: List[RDPContext] = []
         self._context_counter = 0
         self._ports_reserved = False
+        self._bridge_repair_attempted = False
 
     async def _get_active_tab_id(self) -> Optional[int]:
+        await self._ensure_bridge_connected(timeout=5.0)
         if self._bridge and self._bridge.is_connected:
             try:
                 result = await self._bridge.send_command("getActiveTab", {}, timeout=3)
@@ -242,6 +244,7 @@ class RDPBrowser(_LegacyRDPBrowser):
             await context.close()
 
     async def get_active_page(self) -> Optional[RDPPage]:
+        await self._ensure_bridge_connected(timeout=5.0)
         if not self._bridge or not self._bridge.is_connected:
             return None
         try:
@@ -258,6 +261,7 @@ class RDPBrowser(_LegacyRDPBrowser):
 
     async def save_state(self) -> Dict[str, Any]:
         state: Dict[str, Any] = {"cookies": [], "origins": []}
+        await self._ensure_bridge_connected(timeout=5.0)
         if self._bridge and self._bridge.is_connected:
             try:
                 result = await self._bridge.send_command("getCookies", {}, timeout=10)
@@ -297,6 +301,8 @@ class RDPBrowser(_LegacyRDPBrowser):
         origins = state.get("origins", []) if isinstance(state, dict) else []
         cookies_set = 0
         origins_loaded = 0
+
+        await self._ensure_bridge_connected(timeout=5.0)
 
         if clear_existing:
             try:
@@ -555,7 +561,7 @@ class RDPBrowser(_LegacyRDPBrowser):
                 else:
                     logger.warning(f"Extension install failed after {max_retries} attempts: {e}")
 
-    async def _wait_for_bridge(self, timeout: float = 10.0) -> None:
+    async def _wait_for_bridge(self, timeout: float = 10.0, warn: bool = True) -> None:
         if not self._bridge:
             return
         deadline = time.time() + timeout
@@ -564,7 +570,34 @@ class RDPBrowser(_LegacyRDPBrowser):
                 logger.info("Extension bridge connected")
                 return
             await asyncio.sleep(0.5)
-        logger.warning(f"Extension bridge not connected after {timeout}s")
+        if warn:
+            logger.warning(f"Extension bridge not connected after {timeout}s")
+
+    async def _ensure_bridge_connected(self, timeout: float = 10.0) -> bool:
+        if self._bridge and self._bridge.is_connected:
+            return True
+        if not self._bridge:
+            return False
+
+        try:
+            await self._wait_for_bridge(timeout=1.0, warn=False)
+        except Exception:
+            pass
+        if self._bridge.is_connected:
+            return True
+
+        if not self._bridge_repair_attempted:
+            self._bridge_repair_attempted = True
+            try:
+                await self._install_extension(max_retries=1)
+            except Exception:
+                pass
+
+        try:
+            await self._wait_for_bridge(timeout=min(timeout, 2.0), warn=False)
+        except Exception:
+            pass
+        return bool(self._bridge and self._bridge.is_connected)
 
     async def _apply_overrides(self) -> None:
         if not self._timezone:
@@ -610,6 +643,8 @@ class RDPBrowser(_LegacyRDPBrowser):
     async def new_page(self) -> RDPPage:
         if not self._client:
             raise RuntimeError("RDP client is not connected")
+
+        await self._ensure_bridge_connected(timeout=5.0)
 
         previous_tabs = await asyncio.to_thread(self._snapshot_tabs)
         if not self._pages and previous_tabs:
