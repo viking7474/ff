@@ -552,6 +552,9 @@ class RDPPage(_LegacyRDPPage):
                     return page
             raise
 
+    async def _ensure_bridge_ready(self, timeout: float = 10.0) -> bool:
+        return await self._browser._ensure_bridge_connected(timeout=timeout)
+
     async def _enumerate_frames(self) -> List[Dict[str, Any]]:
         self._ensure_open()
         result = await self.evaluate(

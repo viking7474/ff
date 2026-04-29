@@ -416,21 +416,26 @@ class RDPBrowser(_LegacyRDPBrowser):
             self._temp_profile = True
             self._temp_dirs.append(self._profile_path)
 
+        os.makedirs(self._profile_path, exist_ok=True)
+
         bridge = _ExtensionBridge(self._ws_port)
         await bridge.start()
         self._bridge = bridge
 
         prefs = {
-            "remote.enabled": False,
-            "devtools.debugger.remote-enabled": True,
-            "devtools.debugger.prompt-connection": False,
-            "browser.shell.checkDefaultBrowser": False,
+            "extensions.experiments.enabled": True,
+            "xpinstall.signatures.required": False,
+            "extensions.autoDisableScopes": 0,
+            "extensions.enabledScopes": 15,
+            "browser.startup.page": 0,
             "browser.startup.homepage_override.mstone": "ignore",
-            "browser.tabs.warnOnClose": False,
-            "browser.tabs.warnOnOpen": False,
-            "datareporting.healthreport.uploadEnabled": False,
-            "toolkit.telemetry.enabled": False,
-            "app.shield.optoutstudies.enabled": False,
+            "browser.aboutwelcome.enabled": False,
+            "browser.newtabpage.enabled": False,
+            "browser.safebrowsing.enabled": False,
+            "browser.safebrowsing.malware.enabled": False,
+            "browser.safebrowsing.phishing.enabled": False,
+            "network.captive-portal-service.enabled": False,
+            "network.connectivity-service.enabled": False,
             "app.update.enabled": False,
             "extensions.getAddons.showPane": False,
             "extensions.getAddons.cache.enabled": False,
@@ -458,6 +463,8 @@ class RDPBrowser(_LegacyRDPBrowser):
                 prefs["network.proxy.ssl"] = proxy_host
                 prefs["network.proxy.ssl_port"] = proxy_port
                 prefs["network.proxy.no_proxies_on"] = "localhost, 127.0.0.1"
+        else:
+            self._extension_dir = self._prepare_extension_runtime()
         if self._locale:
             prefs["intl.accept_languages"] = self._locale
 
@@ -618,6 +625,20 @@ class RDPBrowser(_LegacyRDPBrowser):
             logger.info(f"Timezone override applied: {self._timezone}")
         except Exception as e:
             logger.debug(f"Timezone override via JS failed: {e}")
+
+    def _prepare_extension_runtime(self) -> str:
+        ext_copy = os.path.join(self._profile_path, "_ext_runtime")
+        if os.path.exists(ext_copy):
+            shutil.rmtree(ext_copy)
+        shutil.copytree(EXTENSION_DIR, ext_copy)
+        bg_path = os.path.join(ext_copy, "background.js")
+        with open(bg_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        content = content.replace("let wsPort = 8775;", f"let wsPort = {self._ws_port};")
+        with open(bg_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        self._temp_dirs.append(ext_copy)
+        return ext_copy
 
     def _read_stderr(self) -> str:
         try:
