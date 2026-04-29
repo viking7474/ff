@@ -334,15 +334,10 @@ the legacy module and must be addressed in later batches.
 Current direct references to `camoufox._rdp_legacy_impl` inside `winfox.rdp`
 still exist in:
 
-- `pythonlib/winfox/rdp/page.py`
-- `pythonlib/winfox/rdp/browser.py`
-- `pythonlib/winfox/rdp/frame.py`
-- `pythonlib/winfox/rdp/locator.py`
-- `pythonlib/winfox/rdp/dialog.py`
-- `pythonlib/winfox/rdp/context.py`
+- None.
 
-This means F4 should not begin until F2 and F3 have removed the inherited
-runtime dependencies.
+F4 is complete once this remains true and `winfox.rdp` type references continue
+to use local imports or `TYPE_CHECKING` imports only.
 
 ## Recommended Next Order
 
@@ -353,3 +348,16 @@ runtime dependencies.
 5. Move remaining browser helpers
 6. Make `RDPBrowser` inheritance-free
 7. Remove type-only imports from `camoufox._rdp_legacy_impl`
+
+## F5 Status
+
+- `pythonlib/camoufox/_rdp_legacy_impl.py` has been removed.
+- `pythonlib/winfox/rdp` no longer depends on the legacy RDP implementation.
+- `pythonlib/camoufox/rdp_api.py` remains the compatibility facade to
+  `winfox.rdp`.
+
+## F8 Status
+
+- Core docs now describe `winfox.rdp` as the primary Python RDP implementation.
+- `camoufox.rdp_api` is documented as a compatibility-only facade.
+- `camoufox.legacy` is documented as the old Playwright-centric path.

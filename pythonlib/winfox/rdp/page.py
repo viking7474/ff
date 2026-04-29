@@ -1,15 +1,6 @@
 """Page-layer home for the Winfox RDP framework.
 
 This module is the new namespace home for the page layer.
-
-To keep risk low while preserving runtime behavior, the current `RDPPage`
-implementation subclasses the legacy implementation from ``camoufox.rdp_api``.
-That means:
-
-1. `_Mouse` and `_Keyboard` are physically moved here already
-2. `RDPPage` now lives in the new namespace as a concrete class
-3. the remaining inherited methods can be peeled off incrementally in later
-   refactor batches without destabilizing the framework
 """
 
 import asyncio

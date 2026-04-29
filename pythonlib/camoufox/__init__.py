@@ -1,3 +1,10 @@
+"""Compatibility package surface for Camoufox.
+
+`winfox.rdp` is the active RDP implementation. `camoufox.rdp_api` is kept as a
+thin compatibility facade, while the Playwright-centric API lives under
+`camoufox.legacy` and is lazily re-exported here for backward compatibility.
+"""
+
 __all__ = [
     "Camoufox",
     "NewBrowser",
@@ -7,6 +14,9 @@ __all__ = [
     "AsyncNewContext",
     "RDPBrowser",
     "RDPPage",
+    "RDPFrame",
+    "RDPContext",
+    "RDPDialog",
     "DefaultAddons",
     "launch_options",
 ]
@@ -23,7 +33,7 @@ def __getattr__(name):
 
         return _launch_options
 
-    if name in {"RDPBrowser", "RDPPage"}:
+    if name in {"RDPBrowser", "RDPPage", "RDPFrame", "RDPContext", "RDPDialog"}:
         from . import rdp_api as _rdp_api
 
         return getattr(_rdp_api, name)
@@ -38,10 +48,10 @@ def __getattr__(name):
     }:
         try:
             if name.startswith("Async"):
-                from . import async_api as _async_api
+                from .legacy import async_api as _async_api
 
                 return getattr(_async_api, name)
-            from . import sync_api as _sync_api
+            from .legacy import sync_api as _sync_api
 
             return getattr(_sync_api, name)
         except Exception as exc:  # pragma: no cover - legacy best effort

@@ -6,8 +6,8 @@ import base64
 import orjson
 from playwright._impl._driver import compute_driver_executable
 
-from camoufox.pkgman import LOCAL_DATA
-from camoufox.utils import launch_options
+from ..pkgman import LOCAL_DATA
+from ..utils import launch_options
 
 LAUNCH_SCRIPT: Path = LOCAL_DATA / "launchServer.js"
 

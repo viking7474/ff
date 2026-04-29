@@ -11,12 +11,12 @@ from playwright.sync_api import (
 )
 from typing_extensions import Literal
 
-from camoufox.virtdisplay import VirtualDisplay
+from ..virtdisplay import VirtualDisplay
 
-from .exceptions import InvalidProxy
-from .fingerprints import generate_context_fingerprint
-from .pkgman import installed_verstr
-from .utils import launch_options, sync_attach_vd
+from ..exceptions import InvalidProxy
+from ..fingerprints import generate_context_fingerprint
+from ..pkgman import installed_verstr
+from ..utils import launch_options, sync_attach_vd
 
 
 class Camoufox(PlaywrightContextManager):

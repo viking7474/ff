@@ -6,6 +6,26 @@ It is designed for stealth-first automation without relying on Playwright/Juggle
 
 In this repository, `RDPBrowser` should be treated as the primary Python automation path.
 
+## Package Identity
+
+Use the package layout like this:
+
+1. `winfox.rdp` is the active implementation and the default import path for new code.
+2. `camoufox.rdp_api` is a compatibility facade that re-exports the same public RDP surface.
+3. `camoufox.legacy` contains the historical Playwright-centric Python path.
+
+Recommended import for new code:
+
+```python
+from winfox.rdp import RDPBrowser
+```
+
+Compatibility import that still works:
+
+```python
+from camoufox.rdp_api import RDPBrowser
+```
+
 ## Architecture
 
 `RDPBrowser` uses three layers:

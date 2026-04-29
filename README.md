@@ -25,6 +25,12 @@ Winfox is an open source anti-detect browser for robust fingerprint injection & 
 > The active Python namespace for the new RDP automation framework is `winfox.rdp`.
 
 > [!NOTE]
+> Python package boundaries in this repo are now:
+> `winfox.rdp` = primary implementation,
+> `camoufox.rdp_api` = compatibility facade,
+> `camoufox.legacy` = historical Playwright-centric path.
+
+> [!NOTE]
 > Browser development is active at [github.com/CloverLabsAI/camoufox](https://github.com/CloverLabsAI/camoufox). ([See activity](https://github.com/CloverLabsAI/camoufox/activity))<br>
 
 > [!NOTE] 
@@ -134,6 +140,12 @@ The repo includes `RDPBrowser`, a Firefox RDP-based automation backend that avoi
 
 For Python automation in this branch, `RDPBrowser` should be considered the primary direction.
 
+Package map:
+
+1. `from winfox.rdp import RDPBrowser` for new RDP work
+2. `from camoufox.rdp_api import RDPBrowser` only for compatibility with older imports
+3. `camoufox.legacy` for the older Playwright-oriented Python path
+
 Documentation:
 
 1. `docs/rdpbrowser.md`
@@ -203,7 +215,7 @@ await page.goto("https://example.com");
 await browser.close();
 ```
 
-The legacy Python package under `pythonlib/` is deprecated and kept only for compatibility during the transition.
+The old Playwright-oriented Python surface under `pythonlib/camoufox` is now a compatibility layer around `camoufox.legacy` and related package utilities. The active RDP framework implementation lives under `pythonlib/winfox/rdp`.
 
 ### Making Full use of Hardware Spoofing
 

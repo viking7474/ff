@@ -13,11 +13,11 @@ from playwright.async_api import (
 )
 from typing_extensions import Literal
 
-from camoufox.virtdisplay import VirtualDisplay
+from ..virtdisplay import VirtualDisplay
 
-from .fingerprints import generate_context_fingerprint
-from .pkgman import installed_verstr
-from .utils import async_attach_vd, launch_options
+from ..fingerprints import generate_context_fingerprint
+from ..pkgman import installed_verstr
+from ..utils import async_attach_vd, launch_options
 
 
 class AsyncCamoufox(PlaywrightContextManager):

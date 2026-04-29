@@ -78,6 +78,8 @@ For this repository direction:
 1. `RDPBrowser` is the primary Python automation path.
 2. `Juggler` is kept as a legacy/reference path.
 3. New automation hardening work should prefer `RDPBrowser` unless there is a concrete compatibility reason not to.
+4. `winfox.rdp` is the implementation namespace for that path.
+5. `camoufox.rdp_api` is only a compatibility facade.
 
 ## What RDPBrowser Already Covers Well
 
@@ -106,4 +108,8 @@ See:
 
 It should not be treated as the default direction for new Python automation work in this branch.
 
-In the Python package layout, the old Playwright-centric path is being grouped under `camoufox.legacy`, while the active framework namespace is `winfox.rdp`.
+In the Python package layout:
+
+1. `winfox.rdp` is the active framework namespace.
+2. `camoufox.rdp_api` preserves old RDP imports.
+3. `camoufox.legacy` groups the old Playwright-centric path.

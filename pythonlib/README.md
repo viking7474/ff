@@ -12,6 +12,12 @@
 > [!NOTE]
 > The repository now has a working Python automation path based on `RDPBrowser` (Firefox RDP + extension bridge). The active framework namespace for that path is `winfox.rdp`. For that path, see `docs/rdpbrowser.md` and `tests/rdpbrowser_smoke.py`.
 
+> [!NOTE]
+> Current package roles:
+> `winfox.rdp` = primary RDP implementation,
+> `camoufox.rdp_api` = compatibility facade for old RDP imports,
+> `camoufox.legacy` = legacy Playwright-centric API surface.
+
 ---
 
 ## What is this?
@@ -21,9 +27,15 @@ This package currently contains two different Python-facing stories:
 1. legacy Playwright/Camoufox helpers
 2. `RDPBrowser`, the preferred stealth-first automation path for this repo
 
-Legacy Playwright-centric modules now live under `camoufox.legacy`, while the new framework path lives under `winfox.rdp`.
+Legacy Playwright-centric modules now live under `camoufox.legacy`, while the new framework path lives under `winfox.rdp`. The old `camoufox.rdp_api` import path remains available only as a thin compatibility facade over `winfox.rdp`.
 
 If you are starting new Python automation work here, use `RDPBrowser` first.
+
+Recommended imports:
+
+1. `from winfox.rdp import RDPBrowser` for new code
+2. `from camoufox.rdp_api import RDPBrowser` only when preserving older call sites
+3. `from camoufox.legacy.sync_api import Camoufox` or `from camoufox.legacy.async_api import AsyncCamoufox` for legacy Playwright maintenance
 
 This Python library wraps around Playwright's API to help automatically generate & inject unique device characteristics (OS, CPU info, navigator, fonts, headers, screen dimensions, viewport size, WebGL, addons, etc.) into Camoufox.
 
