@@ -1,7 +1,8 @@
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from camoufox._rdp_legacy_impl import RDPBrowser, RDPPage
+    from .browser import RDPBrowser
+    from .page import RDPPage
 
 
 class RDPContext:

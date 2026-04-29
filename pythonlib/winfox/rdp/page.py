@@ -20,16 +20,23 @@ import logging
 import mimetypes
 import os
 import time
+from concurrent.futures import Future
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from camoufox.humanize import generate_path as _generate_path, hover_delay as _hover_delay
-from camoufox._rdp_legacy_impl import RDPPage as _LegacyRDPPage
+from geckordp.actors.descriptors.tab import TabActor
 from geckordp.actors.events import Events
+from geckordp.actors.memory import MemoryActor
+from geckordp.actors.resources import Resources
 from geckordp.actors.root import RootActor
 from geckordp.actors.screenshot import ScreenshotActor
+from geckordp.actors.string import StringActor
 from geckordp.actors.targets.window_global import WindowGlobalActor
 from geckordp.actors.web_console import WebConsoleActor
+from geckordp.actors.watcher import WatcherActor
 
 from .dialog import RDPDialog
 from .frame import RDPFrame
@@ -37,12 +44,9 @@ from .locator import _Locator
 
 logger = logging.getLogger(__name__)
 
-if TYPE_CHECKING:
-    from camoufox._rdp_legacy_impl import RDPPage as _LegacyRDPPage
-
 
 class _Mouse:
-    def __init__(self, page: "_LegacyRDPPage"):
+    def __init__(self, page: "RDPPage"):
         self._page = page
         import random as _r
 
@@ -131,7 +135,7 @@ class _Mouse:
 
 
 class _Keyboard:
-    def __init__(self, page: "_LegacyRDPPage"):
+    def __init__(self, page: "RDPPage"):
         self._page = page
 
     async def type(self, text: str, instant: bool = False) -> None:
@@ -157,13 +161,319 @@ class _Keyboard:
             await self._page._bridge.send_command("keyPress", {"tabId": self._page._tab_id, "key": key})
 
 
-class RDPPage(_LegacyRDPPage):
-    """Concrete page class in the new `winfox.rdp.page` namespace.
+class RDPPage:
+    """Concrete page class in the new `winfox.rdp.page` namespace."""
 
-    Runtime behavior is intentionally inherited for now. This keeps smoke/stress
-    stability while letting the codebase move away from `camoufox.rdp_api` as
-    the canonical home for page-layer concepts.
-    """
+    def __init__(
+        self,
+        browser: "Any",
+        client: Any,
+        tab_actor_id: str,
+        target_actor_id: str,
+        console_actor_id: str,
+        browsing_context_id: Optional[int] = None,
+        bridge: Optional[Any] = None,
+        tab_id: Optional[int] = None,
+    ):
+        self._browser = browser
+        self._client = client
+        self._loop = asyncio.get_running_loop()
+        self._tab_actor_id = tab_actor_id
+        self._target_actor_id = target_actor_id
+        self._console_actor_id = console_actor_id
+        self._browsing_context_id = browsing_context_id
+        self._bridge = bridge
+        self._tab_id = tab_id
+        self._url = ""
+        self._console_started = False
+        self._target_ver = 0
+        self._watcher_id = None
+        self._persistent_target_cb = None
+        self._persistent_console_cb = None
+        self._persistent_console_id = None
+        self._event_listeners: Dict[str, List[Any]] = {}
+        self._closed = False
+        self._nav_lock = asyncio.Lock()
+        self._last_emitted_event: Dict[str, tuple] = {}
+        self._network_events_started = False
+        self._network_event_task: Optional[asyncio.Task] = None
+        self._request_event_ts = 0
+        self._spy_event_ts = 0
+        self._seen_network_events: set[tuple] = set()
+        self._seen_network_event_order: List[tuple] = []
+        self._dialog_shim_ready = False
+        self._dialog_last_id = 0
+        self._interception_block_patterns: List[str] = []
+        self._interception_header_rules: List[Dict[str, Any]] = []
+        self._interception_fulfill_rules: List[Dict[str, Any]] = []
+        self.mouse = _Mouse(self)
+        self.keyboard = _Keyboard(self)
+
+    def is_closed(self) -> bool:
+        return self._closed
+
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise RuntimeError("Page is closed")
+
+    def _detach_persistent_console_listener(self) -> None:
+        if self._persistent_console_id and self._persistent_console_cb:
+            try:
+                self._client.remove_event_listener(
+                    self._persistent_console_id,
+                    Events.WebConsole.DOCUMENT_EVENT,
+                    self._persistent_console_cb,
+                )
+            except Exception:
+                pass
+        self._persistent_console_id = None
+        self._persistent_console_cb = None
+
+    def _attach_persistent_console_listener(self, console_id: str) -> None:
+        if not console_id or self._closed:
+            return
+        if self._persistent_console_id == console_id and self._persistent_console_cb:
+            return
+
+        self._detach_persistent_console_listener()
+        WebConsoleActor(self._client, console_id).start_listeners(
+            [WebConsoleActor.Listeners.DOCUMENT_EVENTS]
+        )
+
+        def _on_doc_event(data):
+            evt_url = data.get("url", "")
+            if evt_url:
+                self._url = evt_url
+            name = data.get("name", "")
+            payload = self._make_event_payload(
+                "domcontentloaded" if name == "dom-interactive" else "load",
+                name=name,
+                url=evt_url,
+            )
+            if name == "dom-interactive":
+                self._emit_event_threadsafe("domcontentloaded", payload)
+            if name == "dom-complete":
+                self._emit_event_threadsafe("load", payload)
+
+        self._client.add_event_listener(
+            console_id, Events.WebConsole.DOCUMENT_EVENT, _on_doc_event
+        )
+        self._persistent_console_id = console_id
+        self._persistent_console_cb = _on_doc_event
+
+    def _watch_target(self, target: Dict[str, Any]) -> None:
+        if self._closed:
+            return
+        if target.get("isTopLevelTarget"):
+            new_actor = target.get("actor", "")
+            new_console = target.get("consoleActor", "")
+            if new_console and new_console != self._console_actor_id:
+                self._console_actor_id = new_console
+                self._console_started = False
+                self._attach_persistent_console_listener(new_console)
+            if new_actor:
+                self._target_actor_id = new_actor
+            bc = target.get("browsingContextID")
+            if bc is not None:
+                self._browsing_context_id = bc
+            new_url = target.get("url", "")
+            if new_url and new_url.startswith("http"):
+                self._url = new_url
+                self._emit_event_threadsafe(
+                    "framenavigated",
+                    self._make_event_payload(
+                        "framenavigated",
+                        name="target-available",
+                        url=new_url,
+                    ),
+                )
+            self._target_ver += 1
+            logger.debug(
+                "Persistent watcher: target updated v%s -> %s",
+                self._target_ver,
+                new_console,
+            )
+
+    async def _idle_mouse_loop(self):
+        import random as _r
+
+        try:
+            while True:
+                await asyncio.sleep(_r.uniform(0.4, 1.5))
+                dx = _r.gauss(0, 15)
+                dy = _r.gauss(0, 10)
+                nx = max(50, min(self.mouse._x + dx, 1800))
+                ny = max(50, min(self.mouse._y + dy, 900))
+                try:
+                    await self.mouse._raw_move(nx, ny)
+                    self.mouse._x = nx
+                    self.mouse._y = ny
+                except Exception:
+                    pass
+        except asyncio.CancelledError:
+            pass
+
+    async def simulate_tab_switch(self, duration: Optional[float] = None) -> None:
+        import random as _r
+
+        if not self._bridge or not self._bridge.is_connected:
+            return
+
+        if duration is None:
+            duration = _r.uniform(5.0, 25.0)
+
+        try:
+            await self._bridge.send_command("minimizeWindow", {}, timeout=5)
+        except Exception:
+            return
+
+        await asyncio.sleep(duration)
+
+        try:
+            await self._bridge.send_command("restoreWindow", {}, timeout=5)
+        except Exception:
+            pass
+
+    @asynccontextmanager
+    async def _with_idle_mouse(self):
+        task = asyncio.create_task(self._idle_mouse_loop())
+        try:
+            yield
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    def _start_persistent_watcher(self):
+        tab = TabActor(self._client, self._tab_actor_id)
+        watcher_ctx = tab.get_watcher()
+        self._watcher_id = watcher_ctx["actor"]
+        watcher = WatcherActor(self._client, self._watcher_id)
+        watcher.watch_targets(WatcherActor.Targets.FRAME)
+
+        self._attach_persistent_console_listener(self._console_actor_id)
+
+        def _on_target(data):
+            self._watch_target(data.get("target", {}))
+
+        self._client.add_event_listener(
+            self._watcher_id, Events.Watcher.TARGET_AVAILABLE_FORM, _on_target
+        )
+        self._persistent_target_cb = _on_target
+
+    def dispose(self) -> None:
+        self._closed = True
+        if self._network_event_task:
+            self._network_event_task.cancel()
+            self._network_event_task = None
+        self._detach_persistent_console_listener()
+        if self._watcher_id and self._persistent_target_cb:
+            try:
+                self._client.remove_event_listener(
+                    self._watcher_id,
+                    Events.Watcher.TARGET_AVAILABLE_FORM,
+                    self._persistent_target_cb,
+                )
+            except Exception:
+                pass
+        self._persistent_target_cb = None
+
+    async def bring_to_front(self) -> None:
+        self._ensure_open()
+        await self._ensure_bridge_ready(timeout=5.0)
+        if not self._bridge or not self._bridge.is_connected or self._tab_id is None:
+            raise ConnectionError("Extension bridge not connected or tab ID unavailable")
+        await self._bridge.send_command("activateTab", {"tabId": self._tab_id}, timeout=5)
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        await self._browser._close_page(self)
+
+    def _refresh_target(self):
+        tab = TabActor(self._client, self._tab_actor_id)
+        target = tab.get_target()
+        if target and isinstance(target, dict):
+            new_console = target.get("consoleActor", "")
+            if new_console and new_console != self._console_actor_id:
+                self._console_actor_id = new_console
+                self._console_started = False
+            self._target_actor_id = target.get("actor", self._target_actor_id)
+            self._browsing_context_id = target.get(
+                "browsingContextID", self._browsing_context_id
+            )
+
+    def _ensure_console(self):
+        if not self._console_started:
+            console = WebConsoleActor(self._client, self._console_actor_id)
+            console.start_listeners([])
+            self._console_started = True
+
+    def _eval_sync(self, expression: str, timeout: float = 10.0) -> Any:
+        self._ensure_console()
+
+        fut = Future()
+
+        def on_result(data):
+            try:
+                fut.set_result(data)
+            except Exception:
+                pass
+
+        console_id = self._console_actor_id
+        self._client.add_event_listener(
+            console_id, Events.WebConsole.EVALUATION_RESULT, on_result
+        )
+
+        try:
+            console = WebConsoleActor(self._client, console_id)
+            response = console.evaluate_js_async(expression)
+            is_error = response is None or (
+                isinstance(response, dict) and "error" in response
+            )
+            if is_error:
+                self._client.remove_event_listener(
+                    console_id, Events.WebConsole.EVALUATION_RESULT, on_result
+                )
+                self._console_started = False
+                self._refresh_target()
+                self._ensure_console()
+                console_id = self._console_actor_id
+                self._client.add_event_listener(
+                    console_id, Events.WebConsole.EVALUATION_RESULT, on_result
+                )
+                console = WebConsoleActor(self._client, console_id)
+                response = console.evaluate_js_async(expression)
+                if response is None or (
+                    isinstance(response, dict) and "error" in response
+                ):
+                    return None
+
+            data = fut.result(timeout=timeout)
+        except Exception:
+            return None
+        finally:
+            self._client.remove_event_listener(
+                console_id, Events.WebConsole.EVALUATION_RESULT, on_result
+            )
+
+        val = data.get("result")
+        if isinstance(val, dict):
+            if val.get("type") == "longString":
+                actor_id = val.get("actor", "")
+                length = val.get("length", 0)
+                sa = StringActor(self._client, actor_id)
+                full = sa.substring(0, length)
+                if isinstance(full, str):
+                    return full
+                if isinstance(full, dict):
+                    return full.get("substring", val.get("initial", ""))
+                return val.get("initial", "")
+            if val.get("type") == "undefined":
+                return None
+        return val
 
     async def _ensure_bridge_ready(self, timeout: float = 10.0) -> bool:
         return await self._browser._ensure_bridge_connected(timeout=timeout)
@@ -447,6 +757,81 @@ class RDPPage(_LegacyRDPPage):
         self._ensure_open()
         await self.wait_for_selector(selector, state="visible", timeout=timeout)
 
+    async def wait_for_selector(
+        self, selector: str, timeout: int = 30000, state: str = "visible"
+    ) -> Optional[Dict]:
+        sel_escaped = selector.replace("'", "\\'")
+        wfs_key = f"_s{int(time.time() * 1000) % 100000}"
+
+        if state == "hidden":
+            setup_js = (
+                f"(function(){{"
+                f"  if(!window._ws)window._ws={{}};"
+                f"  if (!document.querySelector('{sel_escaped}')) {{ window._ws['{wfs_key}']='ok'; return '{wfs_key}'; }}"
+                f"  var obs = new MutationObserver(function(){{"
+                f"    if (!document.querySelector('{sel_escaped}')) {{ obs.disconnect(); window._ws['{wfs_key}']='ok'; }}"
+                f"  }});"
+                f"  obs.observe(document.body||document.documentElement,"
+                f"    {{childList:true,subtree:true,attributes:true}});"
+                f"  setTimeout(function(){{ obs.disconnect(); if(!window._ws['{wfs_key}']) window._ws['{wfs_key}']='timeout'; }},{timeout});"
+                f"  return '{wfs_key}';"
+                f"}})()"
+            )
+        else:
+            vis_check = (
+                "if(r.width===0&&r.height===0) return null;"
+                if state == "visible"
+                else ""
+            )
+            setup_js = (
+                f"(function(){{"
+                f"  if(!window._ws)window._ws={{}};"
+                f"  function chk(){{"
+                f"    var el=document.querySelector('{sel_escaped}');"
+                f"    if(!el) return null;"
+                f"    var r=el.getBoundingClientRect(); {vis_check}"
+                f"    return JSON.stringify({{x:r.x,y:r.y,w:r.width,h:r.height}});"
+                f"  }}"
+                f"  var hit=chk(); if(hit){{ window._ws['{wfs_key}']=hit; return '{wfs_key}'; }}"
+                f"  var obs=new MutationObserver(function(){{"
+                f"    var hit=chk(); if(hit){{ obs.disconnect(); window._ws['{wfs_key}']=hit; }}"
+                f"  }});"
+                f"  obs.observe(document.body||document.documentElement,"
+                f"    {{childList:true,subtree:true,attributes:true}});"
+                f"  setTimeout(function(){{ obs.disconnect(); if(!window._ws['{wfs_key}']) window._ws['{wfs_key}']='timeout'; }},{timeout});"
+                f"  return '{wfs_key}';"
+                f"}})()"
+            )
+
+        try:
+            await self.evaluate(setup_js)
+        except Exception:
+            return None
+
+        deadline = time.time() + (timeout / 1000)
+        while time.time() < deadline:
+            try:
+                val = await self.evaluate(f"(window._ws||{{}})['{wfs_key}']")
+                if val and val != "null":
+                    await self.evaluate(
+                        f"try{{delete window._ws['{wfs_key}']}}catch(e){{}}"
+                    )
+                    if val == "timeout":
+                        return None
+                    if val == "ok":
+                        return {}
+                    if isinstance(val, str):
+                        return json.loads(val)
+                    return val
+            except Exception:
+                pass
+            await asyncio.sleep(0.1)
+        try:
+            await self.evaluate(f"try{{delete window._ws['{wfs_key}']}}catch(e){{}}")
+        except Exception:
+            pass
+        return None
+
     async def get_local_storage(self) -> Dict[str, str]:
         self._ensure_open()
         result = await self.evaluate(
@@ -508,8 +893,6 @@ class RDPPage(_LegacyRDPPage):
     async def save_storage_state(self) -> Dict[str, Any]:
         self._ensure_open()
         url = await self.url_fresh()
-        from urllib.parse import urlparse
-
         parsed = urlparse(url)
         origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else ""
         return {
@@ -551,9 +934,6 @@ class RDPPage(_LegacyRDPPage):
                 if page._tab_actor_id not in previous_ids:
                     return page
             raise
-
-    async def _ensure_bridge_ready(self, timeout: float = 10.0) -> bool:
-        return await self._browser._ensure_bridge_connected(timeout=timeout)
 
     async def _enumerate_frames(self) -> List[Dict[str, Any]]:
         self._ensure_open()
@@ -736,6 +1116,26 @@ class RDPPage(_LegacyRDPPage):
             return frame
         return None
 
+    async def is_active(self) -> bool:
+        self._ensure_open()
+        if not self._bridge or not self._bridge.is_connected or self._tab_id is None:
+            return False
+        try:
+            result = await self._bridge.send_command("getActiveTab", {}, timeout=3)
+            return bool(result and result.get("tabId") == self._tab_id)
+        except Exception:
+            return False
+
+    async def wait_for_url(self, pattern: str, timeout: int = 30000) -> str:
+        self._ensure_open()
+        deadline = time.time() + (timeout / 1000)
+        while time.time() < deadline:
+            current = await self.url_fresh()
+            if pattern in current:
+                return current
+            await asyncio.sleep(0.1)
+        raise TimeoutError(f"URL did not match pattern {pattern!r} within {timeout}ms")
+
     async def _ensure_dialog_shim(self) -> None:
         if self._dialog_shim_ready:
             return
@@ -875,74 +1275,6 @@ class RDPPage(_LegacyRDPPage):
             with open(path, "wb") as f:
                 f.write(data)
         return data
-
-    async def _ensure_network_event_bridge(self) -> None:
-        if self._network_events_started:
-            return
-        if not self._bridge or not self._bridge.is_connected:
-            raise ConnectionError("Extension bridge not connected")
-        await self._bridge.send_command("startSpy", {"patterns": ["http"]}, timeout=10)
-        await self._bridge.send_command("startCapture", {"patterns": ["http"]}, timeout=10)
-        self._request_event_ts = int(time.time() * 1000)
-        self._spy_event_ts = self._request_event_ts
-        self._network_events_started = True
-        self._network_event_task = self._loop.create_task(self._network_event_poller())
-
-    async def _network_event_poller(self) -> None:
-        try:
-            while not self._closed:
-                if not self._bridge or not self._bridge.is_connected:
-                    await asyncio.sleep(0.2)
-                    continue
-
-                request_result = await self._bridge.send_command("getRequestEvents", {"since": self._request_event_ts}, timeout=5)
-                requests = request_result.get("requests", []) if request_result else []
-                for req in requests:
-                    self._request_event_ts = max(self._request_event_ts, req.get("timestamp", 0))
-                    signature = (req.get("requestId"), "request", req.get("timestamp", 0))
-                    if not self._remember_network_event(signature):
-                        continue
-                    payload = self._make_network_event_payload("request", req)
-                    payload["state"] = payload["state"] or "request"
-                    self._emit_event("request", payload)
-
-                spy_result = await self._bridge.send_command("getSpiedRequests", {"since": self._spy_event_ts}, timeout=5)
-                network_events = spy_result.get("requests", []) if spy_result else []
-                for item in network_events:
-                    self._spy_event_ts = max(self._spy_event_ts, item.get("timestamp", 0))
-                    state = item.get("state")
-                    signature = (item.get("requestId"), state, item.get("timestamp", 0))
-                    if not self._remember_network_event(signature):
-                        continue
-                    response_payload = self._make_network_event_payload("response", item)
-                    if state == "failed":
-                        self._emit_event("requestfailed", {**response_payload, "event": "requestfailed", "error": item.get("error")})
-                        continue
-                    self._emit_event("response", response_payload)
-                    self._emit_event("requestfinished", {**response_payload, "event": "requestfinished", "state": "finished"})
-
-                await asyncio.sleep(0.2)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("RDPBrowser network event poller failed")
-
-    def on(self, event: str, callback) -> None:
-        self._ensure_open()
-        self._event_listeners.setdefault(event, []).append(callback)
-        if event in {"request", "response", "requestfinished", "requestfailed"}:
-            self._loop.create_task(self._ensure_network_event_bridge())
-        logger.debug("Event listener registered: %s", event)
-
-    def remove_listener(self, event: str, callback) -> None:
-        self._ensure_open()
-        if event in self._event_listeners:
-            try:
-                self._event_listeners[event].remove(callback)
-                if not self._event_listeners[event]:
-                    self._event_listeners.pop(event, None)
-            except ValueError:
-                pass
 
     async def goto(self, url: str, wait_until: str = "load", timeout: int = 30000) -> None:
         self._ensure_open()
@@ -1157,6 +1489,157 @@ class RDPPage(_LegacyRDPPage):
             pass
         goal = "dom-complete" if state in ("load", "networkidle") else "dom-interactive"
         await self._wait_for_doc_event(goal=goal, timeout_s=timeout / 1000)
+
+    def _get_memory_actor_id(self) -> str:
+        tab = TabActor(self._client, self._tab_actor_id)
+        target = tab.get_target()
+        return target.get("memoryActor", "")
+
+    async def clear_cookies(self, domain: Optional[str] = None) -> int:
+        self._ensure_open()
+        await self._ensure_bridge_ready(timeout=5.0)
+        if not self._bridge or not self._bridge.is_connected:
+            logger.warning("clear_cookies: bridge not connected")
+            return 0
+        params: Dict[str, Any] = {}
+        if domain:
+            params["domain"] = domain
+        try:
+            result = await self._bridge.send_command("clearCookies", params, timeout=10)
+            removed = result.get("removed", 0) if result else 0
+            logger.info(
+                "Cleared %s cookies%s",
+                removed,
+                f" for {domain}" if domain else "",
+            )
+            return removed
+        except Exception as exc:
+            logger.error("clear_cookies failed: %s", exc)
+            return 0
+
+    async def force_gc(self) -> None:
+        self._ensure_open()
+
+        def _gc():
+            actor_id = self._get_memory_actor_id()
+            if not actor_id:
+                return
+            mem = MemoryActor(self._client, actor_id)
+            mem.attach()
+            mem.force_garbage_collection()
+            mem.force_cycle_collection()
+            mem.detach()
+
+        await asyncio.to_thread(_gc)
+
+    async def memory_usage(self) -> Optional[Dict]:
+        self._ensure_open()
+
+        def _measure():
+            actor_id = self._get_memory_actor_id()
+            if not actor_id:
+                return None
+            mem = MemoryActor(self._client, actor_id)
+            mem.attach()
+            result = mem.measure()
+            mem.detach()
+            return result
+
+        return await asyncio.to_thread(_measure)
+
+    async def wait_for_network_idle(
+        self, idle_ms: int = 500, timeout: int = 30000
+    ) -> None:
+        self._ensure_open()
+        loop = asyncio.get_running_loop()
+        idle_event = asyncio.Event()
+        pending: set[str] = set()
+        timer_handle = [None]
+
+        def _reschedule():
+            if timer_handle[0]:
+                timer_handle[0].cancel()
+                timer_handle[0] = None
+            if not pending:
+                timer_handle[0] = loop.call_later(idle_ms / 1000, idle_event.set)
+
+        def _on_available(data):
+            actors = [
+                item.get("actor", "")
+                for item in data.get("array", [])
+                if isinstance(item, dict)
+                and item.get("resourceType") == "network-event"
+                and item.get("actor")
+            ]
+            if actors:
+
+                def _add():
+                    pending.update(actors)
+                    _reschedule()
+
+                loop.call_soon_threadsafe(_add)
+
+        def _on_updated(data):
+            actors = [
+                item.get("actor", "")
+                for item in data.get("array", [])
+                if isinstance(item, dict)
+                and item.get("resourceType") == "network-event"
+                and item.get("actor")
+            ]
+            if actors:
+
+                def _remove():
+                    for actor in actors:
+                        pending.discard(actor)
+                    _reschedule()
+
+                loop.call_soon_threadsafe(_remove)
+
+        tab = TabActor(self._client, self._tab_actor_id)
+        watcher_ctx = tab.get_watcher()
+        watcher_id = watcher_ctx["actor"]
+
+        def _setup_watcher():
+            watcher = WatcherActor(self._client, watcher_id)
+            watcher.watch_targets(WatcherActor.Targets.FRAME)
+            watcher.watch_resources([Resources.NETWORK_EVENT])
+
+        await asyncio.to_thread(_setup_watcher)
+
+        self._client.add_event_listener(
+            watcher_id, Events.Watcher.RESOURCES_AVAILABLE_ARRAY, _on_available
+        )
+        self._client.add_event_listener(
+            watcher_id, Events.Watcher.RESOURCES_UPDATED_ARRAY, _on_updated
+        )
+
+        _reschedule()
+
+        try:
+            async with self._with_idle_mouse():
+                await asyncio.wait_for(idle_event.wait(), timeout=timeout / 1000)
+        except asyncio.TimeoutError:
+            pass
+        finally:
+            if timer_handle[0]:
+                timer_handle[0].cancel()
+            try:
+                self._client.remove_event_listener(
+                    watcher_id,
+                    Events.Watcher.RESOURCES_AVAILABLE_ARRAY,
+                    _on_available,
+                )
+            except Exception:
+                pass
+            try:
+                self._client.remove_event_listener(
+                    watcher_id,
+                    Events.Watcher.RESOURCES_UPDATED_ARRAY,
+                    _on_updated,
+                )
+            except Exception:
+                pass
 
     async def start_capture(self, patterns: list) -> None:
         self._ensure_open()

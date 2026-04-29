@@ -1,7 +1,7 @@
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from camoufox._rdp_legacy_impl import RDPPage
+    from .page import RDPPage
 
 
 class RDPDialog:

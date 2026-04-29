@@ -1,6 +1,3 @@
-from .addons import DefaultAddons
-from .utils import launch_options
-
 __all__ = [
     "Camoufox",
     "NewBrowser",
@@ -16,6 +13,16 @@ __all__ = [
 
 
 def __getattr__(name):
+    if name == "DefaultAddons":
+        from .addons import DefaultAddons as _DefaultAddons
+
+        return _DefaultAddons
+
+    if name == "launch_options":
+        from .utils import launch_options as _launch_options
+
+        return _launch_options
+
     if name in {"RDPBrowser", "RDPPage"}:
         from . import rdp_api as _rdp_api
 
