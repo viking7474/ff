@@ -1,35 +1,25 @@
 """Browser-layer home for the Winfox RDP framework.
 
-This module now hosts a concrete `RDPBrowser` class in the new namespace while
-still inheriting the remaining legacy implementation details from
-``camoufox.rdp_api`` where needed. The moved methods below represent the real
-browser backbone used by the framework.
+This module is the new namespace home for the browser layer.
 """
 
 import asyncio
+import ctypes
 import json
+import logging
 import os
 import shutil
 import subprocess
 import tempfile
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
-from camoufox._rdp_legacy_impl import (
-    RDPBrowser as _LegacyRDPBrowser,
-    _create_job_object,
-    _get_default_binary,
-    _kernel32,
-    _write_user_prefs,
-    logger,
-    EXTENSION_DIR,
-    DEFAULT_RDP_PORT,
-    DEFAULT_WS_PORT,
-)
 from geckordp.actors.addon.addons import AddonsActor
 from geckordp.actors.descriptors.tab import TabActor
 from geckordp.actors.root import RootActor
+from geckordp.actors.web_console import WebConsoleActor
 from geckordp.rdp_client import RDPClient
 
 from .bridge import _ExtensionBridge
@@ -38,7 +28,90 @@ from .page import RDPPage
 from .ports import _PORT_ALLOCATOR, _wait_for_port
 
 
-class RDPBrowser(_LegacyRDPBrowser):
+_kernel32 = ctypes.windll.kernel32 if os.name == "nt" else None
+
+logger = logging.getLogger(__name__)
+logging.getLogger("geckordp").setLevel(logging.CRITICAL)
+
+EXTENSION_DIR = str(Path(__file__).resolve().parents[2] / "camoufox" / "extension")
+DEFAULT_RDP_PORT = 6000
+DEFAULT_WS_PORT = 8775
+
+
+def _create_job_object():
+    if not _kernel32:
+        return None
+    import ctypes.wintypes as wt
+
+    class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_int64),
+            ("PerJobUserTimeLimit", ctypes.c_int64),
+            ("LimitFlags", wt.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wt.DWORD),
+            ("Affinity", ctypes.POINTER(ctypes.c_ulong)),
+            ("PriorityClass", wt.DWORD),
+            ("SchedulingClass", wt.DWORD),
+        ]
+
+    class IO_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_ulonglong),
+            ("WriteOperationCount", ctypes.c_ulonglong),
+            ("OtherOperationCount", ctypes.c_ulonglong),
+            ("ReadTransferCount", ctypes.c_ulonglong),
+            ("WriteTransferCount", ctypes.c_ulonglong),
+            ("OtherTransferCount", ctypes.c_ulonglong),
+        ]
+
+    class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ("IoInfo", IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    job = _kernel32.CreateJobObjectW(None, None)
+    if not job:
+        return None
+    info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+    info.BasicLimitInformation.LimitFlags = 0x2000
+    if not _kernel32.SetInformationJobObject(
+        job, 9, ctypes.byref(info), ctypes.sizeof(info)
+    ):
+        _kernel32.CloseHandle(job)
+        return None
+    return job
+
+
+def _get_default_binary() -> str:
+    try:
+        from camoufox.pkgman import launch_path
+
+        return str(launch_path())
+    except Exception:
+        return ""
+
+
+def _write_user_prefs(profile_dir: str, prefs: Dict[str, Any]) -> None:
+    user_js = os.path.join(profile_dir, "user.js")
+    with open(user_js, "a", encoding="utf-8") as file_handle:
+        for key, value in prefs.items():
+            if isinstance(value, bool):
+                val_str = "true" if value else "false"
+            elif isinstance(value, str):
+                val_str = f'"{value}"'
+            else:
+                val_str = str(value)
+            file_handle.write(f'user_pref("{key}", {val_str});\n')
+
+
+class RDPBrowser:
     _init_semaphore: Optional[asyncio.Semaphore] = None
 
     @classmethod
@@ -401,6 +474,88 @@ class RDPBrowser(_LegacyRDPBrowser):
                     pass
         page.dispose()
         self._unregister_page(page)
+
+    async def close_all_pages(self) -> None:
+        for page in list(self.list_pages()):
+            await self._close_page(page)
+
+    async def close_other_pages(self, keep_page: RDPPage) -> None:
+        for page in list(self.list_pages()):
+            if page is not keep_page:
+                await self._close_page(page)
+
+    async def _wait_for_new_tab_actor(
+        self, previous_tab_ids: set[str], timeout: float = 10.0
+    ) -> str:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            current_tabs = await asyncio.to_thread(self._snapshot_tabs)
+            current_ids = set(current_tabs.keys())
+            new_ids = current_ids - previous_tab_ids
+            if new_ids:
+                return next(iter(new_ids))
+            await asyncio.sleep(0.2)
+        raise TimeoutError("Timed out waiting for a new tab actor")
+
+    async def __aenter__(self) -> "RDPBrowser":
+        await self.start()
+        return self
+
+    async def __aexit__(self, *args) -> None:
+        await self.close()
+
+    def _prepare_extension_with_proxy(
+        self, proxy_host: str, proxy_port: int, username: str, password: str
+    ) -> str:
+        ext_copy = os.path.join(self._profile_path, "_ext_with_proxy")
+        if os.path.exists(ext_copy):
+            shutil.rmtree(ext_copy)
+        shutil.copytree(EXTENSION_DIR, ext_copy)
+        bg_path = os.path.join(ext_copy, "background.js")
+        with open(bg_path, "r", encoding="utf-8") as file_handle:
+            content = file_handle.read()
+
+        proxy_js = (
+            f"let proxyConfig = {{\n"
+            f'  host: "{proxy_host}",\n'
+            f"  port: {proxy_port}\n"
+            f"}};\n"
+            f'let proxyCredentials = {{ username: "{username}", password: "{password}" }};\n'
+            f"\n"
+            f"browser.proxy.onRequest.addListener(\n"
+            f"  (details) => {{\n"
+            f'    if (details.url.startsWith("ws://127.0.0.1") ||\n'
+            f'        details.url.startsWith("http://127.0.0.1") ||\n'
+            f'        details.url.startsWith("http://localhost")) {{\n'
+            f'      return {{ type: "direct" }};\n'
+            f"    }}\n"
+            f"    return {{\n"
+            f'      type: "http",\n'
+            f"      host: proxyConfig.host,\n"
+            f"      port: proxyConfig.port\n"
+            f"    }};\n"
+            f"  }},\n"
+            f'  {{ urls: ["<all_urls>"] }}\n'
+            f");\n"
+            f"\n"
+            f"browser.webRequest.onAuthRequired.addListener(\n"
+            f"  (details) => {{\n"
+            f"    if (details.isProxy && proxyCredentials) {{\n"
+            f"      return {{ authCredentials: proxyCredentials }};\n"
+            f"    }}\n"
+            f"  }},\n"
+            f'  {{ urls: ["<all_urls>"] }},\n'
+            f'  ["blocking"]\n'
+            f");\n"
+        )
+
+        content = content.replace(
+            "let proxyConfig = null;\nlet proxyCredentials = null;", proxy_js
+        )
+        with open(bg_path, "w", encoding="utf-8") as file_handle:
+            file_handle.write(content)
+        self._temp_dirs.append(ext_copy)
+        return ext_copy
 
     async def start(self) -> None:
         if not self._ports_reserved:
