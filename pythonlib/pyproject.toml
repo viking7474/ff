@@ -3,9 +3,9 @@ requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
-name = "camoufox"
+name = "winfox"
 version = "0.5.0"
-description = "Winfox Python package with RDPBrowser as the primary automation framework and legacy Camoufox Playwright compatibility"
+description = "Winfox Python package with winfox.rdp as the primary automation framework and optional legacy Playwright compatibility"
 authors = ["daijro <daijro.dev@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/daijro/camoufox"
@@ -68,5 +68,4 @@ geoip = ["geoip2"]
 gui = ["PySide6"]
 
 [tool.poetry.scripts]
-camoufox = "camoufox.__main__:cli"
 winfox = "winfox.__main__:cli"

@@ -1,0 +1,96 @@
+[
+  {
+    "namespace": "nativeInput",
+    "functions": [
+      {
+        "name": "click",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {"name": "tabId", "type": "integer"},
+          {"name": "x", "type": "number"},
+          {"name": "y", "type": "number"},
+          {"name": "button", "type": "integer", "optional": true}
+        ]
+      },
+      {
+        "name": "moveTo",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {"name": "tabId", "type": "integer"},
+          {"name": "x", "type": "number"},
+          {"name": "y", "type": "number"}
+        ]
+      },
+      {
+        "name": "mouseDown",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {"name": "tabId", "type": "integer"},
+          {"name": "x", "type": "number"},
+          {"name": "y", "type": "number"},
+          {"name": "button", "type": "integer", "optional": true}
+        ]
+      },
+      {
+        "name": "mouseUp",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {"name": "tabId", "type": "integer"},
+          {"name": "x", "type": "number"},
+          {"name": "y", "type": "number"},
+          {"name": "button", "type": "integer", "optional": true}
+        ]
+      },
+      {
+        "name": "scroll",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {"name": "tabId", "type": "integer"},
+          {"name": "x", "type": "number"},
+          {"name": "y", "type": "number"},
+          {"name": "deltaX", "type": "number"},
+          {"name": "deltaY", "type": "number"}
+        ]
+      },
+      {
+        "name": "type",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {"name": "tabId", "type": "integer"},
+          {"name": "text", "type": "string"}
+        ]
+      },
+      {
+        "name": "getPort",
+        "type": "function",
+        "async": true,
+        "parameters": [],
+        "returns": {"type": "integer"}
+      },
+      {
+        "name": "keyPress",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {"name": "tabId", "type": "integer"},
+          {"name": "key", "type": "string"}
+        ]
+      },
+      {
+        "name": "navigateTo",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {"name": "tabId", "type": "integer"},
+          {"name": "url", "type": "string"}
+        ]
+      }
+    ]
+  }
+]

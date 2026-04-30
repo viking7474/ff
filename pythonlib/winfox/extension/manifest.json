@@ -1,0 +1,36 @@
+{
+  "manifest_version": 2,
+  "name": "Browser Input",
+  "version": "1.0",
+  "description": "Input dispatch helper",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "{d4a1e2b3-8f7c-4e5d-9a6b-3c2d1e0f4a5b}",
+      "strict_min_version": "120.0"
+    }
+  },
+  "experiment_apis": {
+    "nativeInput": {
+      "schema": "experiment/schema.json",
+      "parent": {
+        "scopes": ["addon_parent"],
+        "paths": [["nativeInput"]],
+        "script": "experiment/api.js"
+      }
+    }
+  },
+  "permissions": [
+    "tabs",
+    "<all_urls>",
+    "activeTab",
+    "webRequest",
+    "webRequestBlocking",
+    "proxy",
+    "cookies"
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": true
+  },
+  "content_scripts": []
+}

@@ -1,0 +1,672 @@
+/* Camoufox RDP Input - WebSocket bridge to Python controller */
+"use strict";
+
+const RECONNECT_MS = 2000;
+const PREF_KEY = "extensions.winfox.ws_port";
+let ws = null;
+let wsPort = 8775;
+let reconnectTimer = null;
+
+let proxyConfig = null;
+let proxyCredentials = null;
+
+let capturePatterns = [];
+let capturedResponses = [];
+const MAX_CAPTURES = 50;
+
+let spyPatterns = [];
+let spyPending = new Map();
+let spyResults = [];
+let requestEvents = [];
+const MAX_SPY = 100;
+const MAX_REQUEST_EVENTS = 200;
+
+let interceptBlockPatterns = [];
+let interceptHeaderRules = [];
+let interceptFulfillRules = [];
+
+function makeDataUrl(body, contentType) {
+  return `data:${contentType};charset=utf-8,${encodeURIComponent(body)}`;
+}
+
+function setupInterceptionListeners() {
+  if (browser.webRequest.onBeforeRequest.hasListener(onInterceptRequest)) {
+    browser.webRequest.onBeforeRequest.removeListener(onInterceptRequest);
+  }
+  if (browser.webRequest.onBeforeSendHeaders.hasListener(onInterceptHeaders)) {
+    browser.webRequest.onBeforeSendHeaders.removeListener(onInterceptHeaders);
+  }
+
+  if (interceptBlockPatterns.length > 0 || interceptFulfillRules.length > 0) {
+    browser.webRequest.onBeforeRequest.addListener(
+      onInterceptRequest,
+      { urls: ["<all_urls>"] },
+      ["blocking"]
+    );
+  }
+
+  if (interceptHeaderRules.length > 0) {
+    browser.webRequest.onBeforeSendHeaders.addListener(
+      onInterceptHeaders,
+      { urls: ["<all_urls>"] },
+      ["blocking", "requestHeaders"]
+    );
+  }
+}
+
+function onInterceptRequest(details) {
+  const fulfillRule = interceptFulfillRules.find(rule => (rule.patterns || []).some(p => details.url.includes(p)));
+  if (fulfillRule) {
+    const fulfilledEntry = {
+      requestId: details.requestId,
+      url: details.url,
+      method: details.method || "GET",
+      body: null,
+      headers: null,
+      responseHeaders: { "content-type": fulfillRule.contentType },
+      responseBody: fulfillRule.body,
+      status: 200,
+      error: null,
+      state: "finished",
+      timestamp: Date.now(),
+    };
+    requestEvents.push({ ...fulfilledEntry, state: "request" });
+    if (requestEvents.length > MAX_REQUEST_EVENTS) {
+      requestEvents = requestEvents.slice(-MAX_REQUEST_EVENTS);
+    }
+    spyResults.push(fulfilledEntry);
+    if (spyResults.length > MAX_SPY) {
+      spyResults = spyResults.slice(-MAX_SPY);
+    }
+    return { redirectUrl: makeDataUrl(fulfillRule.body, fulfillRule.contentType) };
+  }
+
+  if (interceptBlockPatterns.some(p => details.url.includes(p))) {
+    const blockedEntry = {
+      requestId: details.requestId,
+      url: details.url,
+      method: details.method || "GET",
+      body: null,
+      headers: null,
+      responseHeaders: null,
+      responseBody: null,
+      status: null,
+      error: "blocked_by_interception",
+      state: "failed",
+      timestamp: Date.now(),
+    };
+    requestEvents.push({ ...blockedEntry, state: "request" });
+    if (requestEvents.length > MAX_REQUEST_EVENTS) {
+      requestEvents = requestEvents.slice(-MAX_REQUEST_EVENTS);
+    }
+    spyResults.push(blockedEntry);
+    if (spyResults.length > MAX_SPY) {
+      spyResults = spyResults.slice(-MAX_SPY);
+    }
+    return { cancel: true };
+  }
+  return {};
+}
+
+function onInterceptHeaders(details) {
+  let requestHeaders = details.requestHeaders || [];
+  let changed = false;
+  for (const rule of interceptHeaderRules) {
+    const patterns = rule.patterns || [];
+    if (!patterns.some(p => details.url.includes(p))) continue;
+    const headers = rule.headers || {};
+    for (const [name, value] of Object.entries(headers)) {
+      const existing = requestHeaders.find(h => h.name.toLowerCase() === String(name).toLowerCase());
+      if (existing) {
+        existing.value = String(value);
+      } else {
+        requestHeaders.push({ name: String(name), value: String(value) });
+      }
+      changed = true;
+    }
+  }
+  return changed ? { requestHeaders } : {};
+}
+
+function setupCaptureListener() {
+  if (browser.webRequest.onBeforeRequest.hasListener(onBeforeRequestCapture)) {
+    browser.webRequest.onBeforeRequest.removeListener(onBeforeRequestCapture);
+  }
+  if (capturePatterns.length === 0) return;
+
+  browser.webRequest.onBeforeRequest.addListener(
+    onBeforeRequestCapture,
+    { urls: ["<all_urls>"] },
+    ["blocking"]
+  );
+}
+
+function onBeforeRequestCapture(details) {
+  const url = details.url;
+  const matched = capturePatterns.some(p => url.includes(p));
+  if (!matched) return {};
+
+  const filter = browser.webRequest.filterResponseData(details.requestId);
+  const chunks = [];
+
+  filter.ondata = (event) => {
+    chunks.push(new Uint8Array(event.data));
+    filter.write(event.data);
+  };
+
+  filter.onstop = () => {
+    filter.close();
+    try {
+      const totalLen = chunks.reduce((s, c) => s + c.byteLength, 0);
+      const merged = new Uint8Array(totalLen);
+      let offset = 0;
+      for (const chunk of chunks) {
+        merged.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      const body = new TextDecoder("utf-8").decode(merged);
+      capturedResponses.push({
+        url: url,
+        status: null,
+        body: body,
+        timestamp: Date.now(),
+      });
+      if (capturedResponses.length > MAX_CAPTURES) {
+        capturedResponses = capturedResponses.slice(-MAX_CAPTURES);
+      }
+    } catch (e) {
+      console.error("[cap] decode error:", e);
+    }
+  };
+
+  filter.onerror = () => {
+    try { filter.close(); } catch (_) {}
+  };
+
+  return {};
+}
+
+function setupSpyListeners() {
+  if (browser.webRequest.onBeforeRequest.hasListener(onSpyRequest)) {
+    browser.webRequest.onBeforeRequest.removeListener(onSpyRequest);
+  }
+  if (browser.webRequest.onSendHeaders.hasListener(onSpyHeaders)) {
+    browser.webRequest.onSendHeaders.removeListener(onSpyHeaders);
+  }
+  if (browser.webRequest.onCompleted.hasListener(onSpyCompleted)) {
+    browser.webRequest.onCompleted.removeListener(onSpyCompleted);
+  }
+  if (browser.webRequest.onErrorOccurred.hasListener(onSpyError)) {
+    browser.webRequest.onErrorOccurred.removeListener(onSpyError);
+  }
+  if (spyPatterns.length === 0) return;
+
+  browser.webRequest.onBeforeRequest.addListener(
+    onSpyRequest,
+    { urls: ["<all_urls>"] },
+    ["blocking", "requestBody"]
+  );
+  browser.webRequest.onSendHeaders.addListener(
+    onSpyHeaders,
+    { urls: ["<all_urls>"] },
+    ["requestHeaders"]
+  );
+  browser.webRequest.onCompleted.addListener(
+    onSpyCompleted,
+    { urls: ["<all_urls>"] },
+    ["responseHeaders"]
+  );
+  browser.webRequest.onErrorOccurred.addListener(
+    onSpyError,
+    { urls: ["<all_urls>"] }
+  );
+}
+
+function onSpyRequest(details) {
+  if (!spyPatterns.some(p => details.url.includes(p))) return {};
+
+  let bodyText = null;
+  if (details.requestBody && details.requestBody.raw) {
+    try {
+      const parts = details.requestBody.raw.map(p => new Uint8Array(p.bytes));
+      const total = parts.reduce((s, p) => s + p.byteLength, 0);
+      const merged = new Uint8Array(total);
+      let off = 0;
+      for (const p of parts) { merged.set(p, off); off += p.byteLength; }
+      bodyText = new TextDecoder("utf-8").decode(merged);
+    } catch (_) { bodyText = "[decode error]"; }
+  } else if (details.requestBody && details.requestBody.formData) {
+    bodyText = JSON.stringify(details.requestBody.formData);
+  }
+
+  const entry = {
+    requestId: details.requestId,
+    url: details.url,
+    method: details.method,
+    body: bodyText,
+    headers: null,
+    responseHeaders: null,
+    responseBody: null,
+    status: null,
+    error: null,
+    state: "request",
+    timestamp: Date.now(),
+  };
+  spyPending.set(details.requestId, entry);
+  requestEvents.push({ ...entry });
+  if (requestEvents.length > MAX_REQUEST_EVENTS) {
+    requestEvents = requestEvents.slice(-MAX_REQUEST_EVENTS);
+  }
+
+  try {
+    const filter = browser.webRequest.filterResponseData(details.requestId);
+    const chunks = [];
+    filter.ondata = (event) => {
+      chunks.push(new Uint8Array(event.data));
+      filter.write(event.data);
+    };
+    filter.onstop = () => {
+      filter.close();
+      try {
+        const totalLen = chunks.reduce((s, c) => s + c.byteLength, 0);
+        const merged = new Uint8Array(totalLen);
+        let off = 0;
+        for (const c of chunks) { merged.set(c, off); off += c.byteLength; }
+        entry.responseBody = new TextDecoder("utf-8").decode(merged);
+      } catch (_) {}
+      entry.state = "finished";
+      spyResults.push(entry);
+      spyPending.delete(details.requestId);
+      if (spyResults.length > MAX_SPY) spyResults = spyResults.slice(-MAX_SPY);
+    };
+    filter.onerror = () => {
+      try { filter.close(); } catch (_) {}
+      entry.state = entry.error ? "failed" : "finished";
+      spyResults.push(entry);
+      spyPending.delete(details.requestId);
+    };
+  } catch (_) {
+    entry.state = "finished";
+    spyResults.push(entry);
+    spyPending.delete(details.requestId);
+  }
+
+  return {};
+}
+
+function onSpyHeaders(details) {
+  const entry = spyPending.get(details.requestId);
+  if (!entry) return;
+  entry.headers = {};
+  for (const h of details.requestHeaders) {
+    entry.headers[h.name] = h.value;
+  }
+}
+
+function onSpyCompleted(details) {
+  const entry = spyPending.get(details.requestId);
+  if (!entry) return;
+  entry.status = details.statusCode || null;
+  if (details.responseHeaders) {
+    entry.responseHeaders = {};
+    for (const h of details.responseHeaders) {
+      entry.responseHeaders[h.name] = h.value;
+    }
+  }
+}
+
+function onSpyError(details) {
+  if (!spyPatterns.some(p => details.url.includes(p))) return;
+  const entry = spyPending.get(details.requestId) || {
+    requestId: details.requestId,
+    url: details.url,
+    method: details.method || "GET",
+    body: null,
+    headers: null,
+    responseHeaders: null,
+    responseBody: null,
+    status: null,
+    error: null,
+    state: "request",
+    timestamp: Date.now(),
+  };
+  entry.error = details.error || "unknown";
+  entry.state = "failed";
+  spyPending.delete(details.requestId);
+  spyResults.push(entry);
+  if (spyResults.length > MAX_SPY) spyResults = spyResults.slice(-MAX_SPY);
+}
+
+async function initPort() {
+  try {
+    const port = await browser.nativeInput.getPort();
+    if (port && port > 0) {
+      wsPort = port;
+      return;
+    }
+  } catch (_) {}
+  for (let port = 8775; port <= 8790; port++) {
+    try {
+      const testWs = new WebSocket(`ws://127.0.0.1:${port}`);
+      await new Promise((resolve, reject) => {
+        testWs.addEventListener("open", () => {
+          wsPort = port;
+          testWs.close();
+          resolve();
+        });
+        testWs.addEventListener("error", () => reject());
+        setTimeout(() => reject(), 300);
+      });
+      break;
+    } catch (_) {}
+  }
+}
+
+function connect() {
+  if (ws && ws.readyState === WebSocket.OPEN) return;
+  try {
+    ws = new WebSocket(`ws://127.0.0.1:${wsPort}`);
+  } catch (_) {
+    return;
+  }
+
+  ws.addEventListener("open", () => {
+    console.log(`[ext] Connected on port ${wsPort}`);
+    ws.send(JSON.stringify({ type: "hello", extensionId: "{d4a1e2b3-8f7c-4e5d-9a6b-3c2d1e0f4a5b}" }));
+  });
+
+  ws.addEventListener("message", async (event) => {
+    let msg;
+    try {
+      msg = JSON.parse(event.data);
+    } catch (_) {
+      return;
+    }
+
+    const { id, cmd, params } = msg;
+    let result = null;
+    let error = null;
+
+    try {
+      switch (cmd) {
+        case "click":
+          await browser.nativeInput.click(params.tabId, params.x, params.y, params.button || 0);
+          result = { ok: true };
+          break;
+        case "moveTo":
+          await browser.nativeInput.moveTo(params.tabId, params.x, params.y);
+          result = { ok: true };
+          break;
+        case "mouseDown":
+          await browser.nativeInput.mouseDown(params.tabId, params.x, params.y, params.button || 0);
+          result = { ok: true };
+          break;
+        case "mouseUp":
+          await browser.nativeInput.mouseUp(params.tabId, params.x, params.y, params.button || 0);
+          result = { ok: true };
+          break;
+        case "scroll":
+          await browser.nativeInput.scroll(params.tabId, params.x, params.y, params.deltaX, params.deltaY);
+          result = { ok: true };
+          break;
+        case "type":
+          await browser.nativeInput.type(params.tabId, params.text);
+          result = { ok: true };
+          break;
+        case "keyPress":
+          await browser.nativeInput.keyPress(params.tabId, params.key);
+          result = { ok: true };
+          break;
+        case "getActiveTab": {
+          const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+          result = tabs.length > 0 ? { tabId: tabs[0].id, url: tabs[0].url } : null;
+          break;
+        }
+        case "createTab": {
+          const tab = await browser.tabs.create({
+            url: params.url || "about:blank",
+            active: params.active !== false,
+          });
+          result = { tabId: tab.id, url: tab.url };
+          break;
+        }
+        case "activateTab": {
+          const tab = await browser.tabs.update(params.tabId, { active: true });
+          result = { tabId: tab.id, url: tab.url, active: tab.active };
+          break;
+        }
+        case "closeTab":
+          await browser.tabs.remove(params.tabId);
+          result = { ok: true, tabId: params.tabId };
+          break;
+        case "screenshot": {
+          const dataUrl = await browser.tabs.captureVisibleTab(null, { format: "png" });
+          result = { dataUrl };
+          break;
+        }
+        case "setProxyAuth":
+          proxyAuth = { username: params.username, password: params.password };
+          result = { ok: true };
+          break;
+        case "startCapture":
+          capturePatterns = params.patterns || [];
+          capturedResponses = [];
+          setupCaptureListener();
+          result = { ok: true, patterns: capturePatterns };
+          break;
+        case "stopCapture":
+          capturePatterns = [];
+          setupCaptureListener();
+          result = { ok: true };
+          break;
+        case "getCapturedResponses": {
+          const minTs = params.since || 0;
+          result = { responses: capturedResponses.filter(r => r.timestamp > minTs) };
+          break;
+        }
+        case "clearCaptures":
+          capturedResponses = [];
+          result = { ok: true };
+          break;
+        case "navigate":
+          await browser.nativeInput.navigateTo(params.tabId, params.url);
+          result = { ok: true };
+          break;
+        case "startSpy":
+          spyPatterns = params.patterns || [];
+          spyPending = new Map();
+          spyResults = [];
+          requestEvents = [];
+          setupSpyListeners();
+          result = { ok: true, patterns: spyPatterns };
+          break;
+        case "setInterception":
+          interceptBlockPatterns = params.blockPatterns || [];
+          interceptHeaderRules = params.headerRules || [];
+          interceptFulfillRules = params.fulfillRules || [];
+          setupInterceptionListeners();
+          result = {
+            ok: true,
+            blockPatterns: interceptBlockPatterns,
+            headerRules: interceptHeaderRules,
+            fulfillRules: interceptFulfillRules,
+          };
+          break;
+        case "clearInterception":
+          interceptBlockPatterns = [];
+          interceptHeaderRules = [];
+          interceptFulfillRules = [];
+          setupInterceptionListeners();
+          result = { ok: true };
+          break;
+        case "stopSpy":
+          spyPatterns = [];
+          setupSpyListeners();
+          result = { ok: true };
+          break;
+        case "getSpiedRequests": {
+          const spySince = params.since || 0;
+          result = { requests: spyResults.filter(r => r.timestamp > spySince) };
+          break;
+        }
+        case "getRequestEvents": {
+          const reqSince = params.since || 0;
+          result = { requests: requestEvents.filter(r => r.timestamp > reqSince) };
+          break;
+        }
+        case "clearSpied":
+          spyResults = [];
+          spyPending = new Map();
+          requestEvents = [];
+          result = { ok: true };
+          break;
+        case "bgFetch": {
+          const resp = await fetch(params.url, {
+            method: params.method || "GET",
+            headers: params.headers || {},
+            credentials: "include"
+          });
+          const text = await resp.text();
+          result = { status: resp.status, body: text.substring(0, params.maxBody || 100000) };
+          break;
+        }
+        case "clearCookies": {
+          const domain = params.domain || null;
+          const url = params.url || null;
+          let removed = 0;
+          let cookies;
+          if (domain) cookies = await browser.cookies.getAll({ domain });
+          else if (url) cookies = await browser.cookies.getAll({ url });
+          else cookies = await browser.cookies.getAll({});
+          for (const c of cookies) {
+            const proto = c.secure ? "https://" : "http://";
+            const cookieUrl = proto + c.domain.replace(/^\./, "") + c.path;
+            try {
+              await browser.cookies.remove({ url: cookieUrl, name: c.name });
+              removed++;
+            } catch (_) {}
+          }
+          result = { ok: true, removed };
+          break;
+        }
+        case "getCookies": {
+          const domain = params.domain || null;
+          const url = params.url || null;
+          let cookies;
+          if (domain) cookies = await browser.cookies.getAll({ domain });
+          else if (url) cookies = await browser.cookies.getAll({ url });
+          else cookies = await browser.cookies.getAll({});
+          result = { cookies };
+          break;
+        }
+        case "setCookies": {
+          const cookies = params.cookies || [];
+          let set = 0;
+          for (const c of cookies) {
+            try {
+              let cookieUrl = c.url || null;
+              if (!cookieUrl && c.domain) {
+                const proto = c.secure ? "https://" : "http://";
+                cookieUrl = proto + String(c.domain).replace(/^\./, "") + (c.path || "/");
+              }
+              if (!cookieUrl) continue;
+              await browser.cookies.set({
+                url: cookieUrl,
+                name: c.name,
+                value: c.value,
+                domain: c.domain,
+                path: c.path,
+                secure: c.secure,
+                httpOnly: c.httpOnly,
+                sameSite: c.sameSite,
+                expirationDate: c.expirationDate,
+              });
+              set++;
+            } catch (_) {}
+          }
+          result = { ok: true, set };
+          break;
+        }
+        case "minimizeWindow": {
+          try {
+            const win = await browser.windows.getCurrent();
+            await browser.windows.update(win.id, { state: "minimized" });
+            result = { ok: true, windowId: win.id };
+          } catch (e) {
+            error = e.message || String(e);
+          }
+          break;
+        }
+        case "restoreWindow": {
+          try {
+            const win = await browser.windows.getCurrent();
+            await browser.windows.update(win.id, { state: "normal" });
+            await browser.windows.update(win.id, { focused: true });
+            result = { ok: true };
+          } catch (e) {
+            error = e.message || String(e);
+          }
+          break;
+        }
+        case "closeOtherTabs": {
+          const allTabs = await browser.tabs.query({ currentWindow: true });
+          const keepId = params.keepTabId || null;
+          let closed = 0;
+          for (const t of allTabs) {
+            if (keepId && t.id === keepId) continue;
+            if (t.active && !keepId) continue;
+            try {
+              await browser.tabs.remove(t.id);
+              closed++;
+            } catch (_) {}
+          }
+          result = { ok: true, closed };
+          break;
+        }
+        case "ping":
+          result = { pong: true };
+          break;
+        default:
+          error = `Unknown command: ${cmd}`;
+      }
+    } catch (e) {
+      error = e.message || String(e);
+    }
+
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ id, result, error }));
+    }
+  });
+
+  ws.addEventListener("close", () => {
+    ws = null;
+  });
+
+  ws.addEventListener("error", () => {
+    try { ws.close(); } catch (_) {}
+    ws = null;
+  });
+}
+
+function injectCursor(tabId) {
+  browser.tabs.executeScript(tabId, {
+    file: "cursor.js",
+    runAt: "document_idle",
+    allFrames: false
+  }).catch(() => {});
+}
+
+browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === "complete") {
+    injectCursor(tabId);
+  }
+});
+
+initPort().then(() => {
+  connect();
+  reconnectTimer = setInterval(() => {
+    if (!ws || ws.readyState === WebSocket.CLOSED) {
+      connect();
+    }
+  }, RECONNECT_MS);
+});

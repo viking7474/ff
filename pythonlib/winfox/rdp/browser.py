@@ -33,7 +33,7 @@ _kernel32 = ctypes.windll.kernel32 if os.name == "nt" else None
 logger = logging.getLogger(__name__)
 logging.getLogger("geckordp").setLevel(logging.CRITICAL)
 
-EXTENSION_DIR = str(Path(__file__).resolve().parents[2] / "camoufox" / "extension")
+EXTENSION_DIR = str(Path(__file__).resolve().parents[1] / "extension")
 DEFAULT_RDP_PORT = 6000
 DEFAULT_WS_PORT = 8775
 
@@ -91,7 +91,7 @@ def _create_job_object():
 
 def _get_default_binary() -> str:
     try:
-        from camoufox.pkgman import launch_path
+        from winfox.pkgman import launch_path
 
         return str(launch_path())
     except Exception:

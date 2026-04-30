@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
-from camoufox.humanize import generate_path as _generate_path, hover_delay as _hover_delay
+from winfox.humanize import generate_path as _generate_path, hover_delay as _hover_delay
 from geckordp.actors.descriptors.tab import TabActor
 from geckordp.actors.events import Events
 from geckordp.actors.memory import MemoryActor
@@ -116,7 +116,7 @@ class _Mouse:
 
     async def wheel_smooth(self, delta_y: float) -> None:
         self._page._ensure_open()
-        from camoufox.humanize import scroll_sequence
+        from winfox.humanize import scroll_sequence
 
         events = scroll_sequence(delta_y)
         for dy, delay in events:
@@ -138,7 +138,7 @@ class _Keyboard:
             await self._page._bridge.send_command("type", {"tabId": self._page._tab_id, "text": text})
             return
 
-        from camoufox.humanize import typing_sequence
+        from winfox.humanize import typing_sequence
         for ch, delay in typing_sequence(text):
             try:
                 await self._page._bridge.send_command("type", {"tabId": self._page._tab_id, "text": ch})
