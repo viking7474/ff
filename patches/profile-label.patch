@@ -1,0 +1,43 @@
+diff --git a/browser/components/urlbar/UrlbarInput.sys.mjs b/browser/components/urlbar/UrlbarInput.sys.mjs
+--- a/browser/components/urlbar/UrlbarInput.sys.mjs
++++ b/browser/components/urlbar/UrlbarInput.sys.mjs
+@@ -370,6 +370,30 @@
+     }
+     this._updateFocusHandling();
+   }
++
++  // Camoufox: Update profile label in Identity Box
++  _updateCamoufoxProfileLabel() {
++    let profileName = ChromeUtils.camouGetString("browser.profileName");
++    if (!profileName) return;
++
++    let identityBox = this.document.getElementById("identity-box");
++    if (!identityBox) return;
++
++    let label = this.document.getElementById("camoufox-profile-label");
++    if (!label) {
++      label = this.document.createXULElement("label");
++      label.id = "camoufox-profile-label";
++      label.style.fontWeight = "bold";
++      // Use CSS variables for theme compatibility
++      label.style.color = "var(--toolbar-field-color, inherit)";
++      label.style.marginInline = "6px";
++      label.style.display = "flex";
++      label.style.alignItems = "center";
++      label.style.opacity = "0.7";
++      identityBox.appendChild(label);
++    }
++    label.setAttribute("value", "[" + profileName + "]");
++  }
+
+   /**
+    * Returns the text to display in the URL bar for a given URI.
+@@ -530,6 +554,8 @@
+     // Search term or URL mode.
+     if (this.window.gBrowser.userTypedValue) {
+       this.value = this.window.gBrowser.userTypedValue;
++    }
++
++    this._updateCamoufoxProfileLabel();
+
+     this.selectionStart = this.selectionEnd = 0;

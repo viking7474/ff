@@ -140,3 +140,8 @@ Nếu bạn đã build hoặc tải sẵn `camoufox.exe` (hoặc `camoufox` trê
    ```
 
 Đoạn script sẽ tự động tạo một fingerprint hợp lệ dựa trên cấu hình mạng (GeoIP) mặc định và khởi chạy Playwright mở trình duyệt Camoufox của bạn, truy cập vào một trang kiểm tra để bạn xác nhận cấu hình đã hoạt động.
+
+### Thêm Nhãn Profile vào Thanh Địa Chỉ (AwesomeBar)
+
+Được lấy cảm hứng từ cấu hình Identity của Chromium, một patch mới (`profile-label.patch`) đã được thêm vào hệ thống để cung cấp tính năng tương tự.
+Nếu bạn truyền vào JSON cấu hình trường `"browser.profileName": "Tên Profile"`, thì chuỗi này sẽ được xuất hiện nổi bật bên cạnh ổ khoá / biểu tượng bảo mật trên thanh địa chỉ URL của Camoufox/Firefox, giúp dễ dàng phân biệt các profile đang mở khi test đa luồng.
