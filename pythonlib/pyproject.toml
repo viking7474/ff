@@ -5,11 +5,9 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry]
 name = "winfox"
 version = "0.5.0"
-description = "Winfox Python package with winfox.rdp as the primary automation framework and optional legacy Playwright compatibility"
+description = "Winfox Python package with winfox.rdp as the primary automation framework"
 authors = ["daijro <daijro.dev@gmail.com>"]
 license = "MIT"
-repository = "https://github.com/daijro/camoufox"
-homepage = "https://camoufox.com/python"
 readme = "README.md"
 keywords = [
     "client",
@@ -19,7 +17,7 @@ keywords = [
     "injector",
     "firefox",
     "rdp",
-    "playwright",
+    "winfox",
 ]
 classifiers = [
     "Topic :: Internet :: WWW/HTTP",
@@ -27,7 +25,6 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 packages = [
-    { include = "camoufox" },
     { include = "winfox" },
 ]
 
@@ -35,37 +32,9 @@ packages = [
 python = "^3.10"
 rich-click = "*"
 rich = "*"
-requests = "*"
-orjson = "*"
-pyyaml = "*"
 platformdirs = "*"
-typing_extensions = "*"
 geckordp = "*"
 websockets = "*"
-lxml = "*"
-pysocks = "*"
-browserforge = {version = "^1.2.4", optional = true}
-playwright = {version = "*", optional = true}
-numpy = {version = "*", optional = true}
-ua_parser = {version = "*", optional = true}
-screeninfo = {version = "*", optional = true}
-language-tags = {version = "*", optional = true}
-inquirer = {version = "*", optional = true}
-geoip2 = {version = "*", optional = true}
-PySide6 = {version = "*", optional = true}
-
-[tool.poetry.extras]
-legacy = [
-    "browserforge",
-    "playwright",
-    "numpy",
-    "ua_parser",
-    "screeninfo",
-    "language-tags",
-    "inquirer",
-]
-geoip = ["geoip2"]
-gui = ["PySide6"]
 
 [tool.poetry.scripts]
 winfox = "winfox.__main__:cli"

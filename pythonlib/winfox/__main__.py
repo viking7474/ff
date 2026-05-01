@@ -43,7 +43,7 @@ def info_cmd() -> None:
     rprint(f"Package version: {_version()}", fg="cyan")
     rprint(f"Default cache dir: {INSTALL_DIR}", fg="cyan")
     rprint("Primary Python RDP namespace: winfox.rdp", fg="yellow")
-    rprint("Legacy compatibility namespace: camoufox.legacy", fg="yellow")
+    rprint("This distribution contains only the Winfox package surface.", fg="yellow")
 
 
 if __name__ == "__main__":
