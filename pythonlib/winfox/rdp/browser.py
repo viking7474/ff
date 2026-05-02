@@ -8,6 +8,7 @@ import ctypes
 import json
 import logging
 import os
+import textwrap
 import shutil
 import subprocess
 import tempfile
@@ -176,6 +177,8 @@ class RDPBrowser:
         self._context_counter = 0
         self._ports_reserved = False
         self._bridge_repair_attempted = False
+        self._init_script_hooks: List[str] = []
+        self._init_script_hooks_revision = 0
 
     async def _get_active_tab_id(self) -> Optional[int]:
         await self._ensure_bridge_connected(timeout=5.0)
@@ -248,6 +251,79 @@ class RDPBrowser:
         page._start_persistent_watcher()
         return self._register_page(page)
 
+    @staticmethod
+    def _normalize_init_script_hooks(hooks: Any) -> List[str]:
+        if hooks is None:
+            return []
+        if isinstance(hooks, str):
+            hook = hooks.strip()
+            return [hook] if hook else []
+        if isinstance(hooks, (list, tuple)):
+            normalized: List[str] = []
+            for hook in hooks:
+                if not isinstance(hook, str):
+                    raise TypeError("init script hooks must be strings")
+                hook = hook.strip()
+                if hook:
+                    normalized.append(hook)
+            return normalized
+        raise TypeError("hooks must be a string, list of strings, or None")
+
+    @staticmethod
+    def _wrap_init_script_hook(hook: str) -> str:
+        script = textwrap.dedent(hook).strip()
+        if not script:
+            return "true"
+        return (
+            "(function(){"
+            "try{"
+            f"{script}\n"
+            "return true;"
+            "}catch(e){"
+            "return {__winfoxInitHookError:String(e&&e.message||e)};"
+            "}"
+            "})()"
+        )
+
+    async def _apply_init_script_hooks_to_page(self, page: RDPPage) -> None:
+        if page.is_closed():
+            return
+        if page._init_script_hooks_revision == self._init_script_hooks_revision:
+            return
+        if not self._init_script_hooks:
+            page._init_script_hooks_revision = self._init_script_hooks_revision
+            return
+
+        for hook in self._init_script_hooks:
+            result = await page.evaluate(self._wrap_init_script_hook(hook))
+            if isinstance(result, dict) and result.get("__winfoxInitHookError"):
+                raise RuntimeError(
+                    f"init script hook failed: {result['__winfoxInitHookError']}"
+                )
+        page._init_script_hooks_revision = self._init_script_hooks_revision
+
+    async def set_init_script_hooks(
+        self, hooks: Any, apply_existing: bool = True
+    ) -> int:
+        self._init_script_hooks = self._normalize_init_script_hooks(hooks)
+        self._init_script_hooks_revision += 1
+
+        if not apply_existing:
+            return 0
+
+        applied = 0
+        errors: List[str] = []
+        for page in list(self.list_pages()):
+            try:
+                await self._apply_init_script_hooks_to_page(page)
+                applied += 1
+            except Exception as exc:
+                errors.append(f"tab_actor={page._tab_actor_id}: {exc}")
+
+        if errors:
+            raise RuntimeError("Failed to apply init script hooks: " + "; ".join(errors))
+        return applied
+
     def list_pages(self) -> List[RDPPage]:
         self._pages = [page for page in self._pages if not page.is_closed()]
         return list(self._pages)
@@ -301,6 +377,8 @@ class RDPBrowser:
             fingerprint=overrides.get("fingerprint", self._fingerprint),
         )
         child._ports_reserved = True
+        child._init_script_hooks = list(self._init_script_hooks)
+        child._init_script_hooks_revision = self._init_script_hooks_revision
         try:
             await child.start()
         except Exception:
@@ -330,7 +408,10 @@ class RDPBrowser:
         if tab_id is None:
             return None
         page = self._pages_by_tab_id.get(tab_id)
-        return page if page and not page.is_closed() else None
+        if not page or page.is_closed():
+            return None
+        await self._apply_init_script_hooks_to_page(page)
+        return page
 
     async def save_state(self) -> Dict[str, Any]:
         state: Dict[str, Any] = {"cookies": [], "origins": []}
@@ -425,6 +506,7 @@ class RDPBrowser:
                 if page.is_closed():
                     continue
                 if page._tab_actor_id not in previous_tab_actor_ids:
+                    await self._apply_init_script_hooks_to_page(page)
                     return page
 
             try:
@@ -432,7 +514,9 @@ class RDPBrowser:
                     previous_tab_actor_ids,
                     timeout=min(1.0, max(0.1, deadline - time.time())),
                 )
-                return self._build_page_from_tab(new_tab_actor_id, await self._get_active_tab_id())
+                page = self._build_page_from_tab(new_tab_actor_id, await self._get_active_tab_id())
+                await self._apply_init_script_hooks_to_page(page)
+                return page
             except TimeoutError:
                 await asyncio.sleep(0.1)
 
@@ -776,8 +860,9 @@ class RDPBrowser:
                 return
             console = WebConsoleActor(self._client, console_id)
             console.start_listeners([])
-            console.evaluate_js_async(f'window.setTimezone("{self._timezone}")')
-            logger.info(f"Timezone override applied: {self._timezone}")
+            if self._timezone:
+                console.evaluate_js_async(f'window.setTimezone("{self._timezone}")')
+                logger.info(f"Timezone override applied: {self._timezone}")
         except Exception as e:
             logger.debug(f"Timezone override via JS failed: {e}")
 
@@ -825,7 +910,9 @@ class RDPBrowser:
         previous_tabs = await asyncio.to_thread(self._snapshot_tabs)
         if not self._pages and previous_tabs:
             first_actor = next(iter(previous_tabs))
-            return self._build_page_from_tab(first_actor, await self._get_active_tab_id())
+            page = self._build_page_from_tab(first_actor, await self._get_active_tab_id())
+            await self._apply_init_script_hooks_to_page(page)
+            return page
 
         bridge_tab_id = None
         if self._bridge and self._bridge.is_connected:
@@ -847,14 +934,20 @@ class RDPBrowser:
                 try:
                     await self._pages[-1].evaluate("window.open('about:blank', '_blank'); true")
                     new_tab_actor_id = await self._wait_for_new_tab_actor(set(previous_tabs.keys()))
-                    return self._build_page_from_tab(new_tab_actor_id, None)
+                    page = self._build_page_from_tab(new_tab_actor_id, None)
+                    await self._apply_init_script_hooks_to_page(page)
+                    return page
                 except Exception:
                     pass
             first_actor = next(iter(previous_tabs))
-            return self._build_page_from_tab(first_actor, None)
+            page = self._build_page_from_tab(first_actor, None)
+            await self._apply_init_script_hooks_to_page(page)
+            return page
 
         new_tab_actor_id = await self._wait_for_new_tab_actor(set(previous_tabs.keys()))
-        return self._build_page_from_tab(new_tab_actor_id, bridge_tab_id)
+        page = self._build_page_from_tab(new_tab_actor_id, bridge_tab_id)
+        await self._apply_init_script_hooks_to_page(page)
+        return page
 
     async def close(self) -> None:
         for context in list(self.contexts()):

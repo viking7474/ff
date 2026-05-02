@@ -610,6 +610,10 @@ See `docs/rdpbrowser_vi.md` for a Vietnamese overview of the available `RDPBrows
 
 See `docs/rdpbrowser_vs_juggler.md` for the current repository positioning and a direct comparison against legacy Juggler automation.
 
+## Native Fingerprint Hooks
+
+See `docs/rdpbrowser_fingerprint_hooks_vi.md` for a focused explanation of how native `window.set...()` fingerprint hooks are handled in `winfox.rdp`, when to use launch-time `fingerprint=...`, and when manual page-level hook calls make sense.
+
 ## Troubleshooting
 
 See `docs/rdpbrowser_troubleshooting.md` for common runtime failures and the recommended debug order.

@@ -197,6 +197,7 @@ class RDPPage:
         self._interception_block_patterns: List[str] = []
         self._interception_header_rules: List[Dict[str, Any]] = []
         self._interception_fulfill_rules: List[Dict[str, Any]] = []
+        self._init_script_hooks_revision = -1
         self.mouse = _Mouse(self)
         self.keyboard = _Keyboard(self)
 
