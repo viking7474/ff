@@ -238,3 +238,5 @@ Dưới đây là danh sách đầy đủ các biến môi trường/JSON field 
 - `window.scrollMinY (e.g. 0)`
 - `showcursor` (Boolean, e.g. false) - Bật/tắt hiển thị con trỏ màu đỏ
 - `browser.profileName` (e.g. "hoadeptrai") - Hiển thị tên Profile trên thanh URL
+- `webrtc_ipv4_<userContextId>` (e.g. "123.123.123.123") - Được inject thông qua Javascript `window.setWebRTCIPv4()`
+- `webrtc_ipv6_<userContextId>` (e.g. "2001:db8::1") - Được inject thông qua Javascript `window.setWebRTCIPv6()`
