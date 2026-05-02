@@ -240,3 +240,38 @@ Dưới đây là danh sách đầy đủ các biến môi trường/JSON field 
 - `browser.profileName` (e.g. "hoadeptrai") - Hiển thị tên Profile trên thanh URL
 - `webrtc_ipv4_<userContextId>` (e.g. "123.123.123.123") - Được inject thông qua Javascript `window.setWebRTCIPv4()`
 - `webrtc_ipv6_<userContextId>` (e.g. "2001:db8::1") - Được inject thông qua Javascript `window.setWebRTCIPv6()`
+
+### Lưu ý về các Javascript WebIDL Hooks
+Ngoài việc lấy cấu hình qua các biến môi trường (`CAMOU_CONFIG`) ngay từ khi khởi động thông qua C++ (MaskConfig), kiến trúc của Camoufox còn cung cấp một loạt các hàm Javascript (`Window` WebIDL hooks) để cấu hình trực tiếp từ Page/Browser Context (Playwright có thể gọi các hàm này thông qua cơ chế CDP/Juggler injection thay vì gán Environment Variables). Các hàm này bao gồm:
+
+- `window.setFontSpacingSeed(unsigned long seed)`
+- `window.setAudioFingerprintSeed(unsigned long seed)`
+- `window.setCanvasSeed(unsigned long seed)`
+- `window.setFontList(DOMString fontList)`
+- `window.setNavigatorPlatform(DOMString platform)`
+- `window.setNavigatorOscpu(DOMString oscpu)`
+- `window.setNavigatorHardwareConcurrency(unsigned long cores)`
+- `window.setNavigatorUserAgent(DOMString ua)`
+- `window.setScreenDimensions(long width, long height)`
+- `window.setScreenColorDepth(long colorDepth)`
+- `window.setSpeechVoices(DOMString voices)`
+- `window.setTimezone(DOMString timezone)`
+- `window.setWebGLVendor(DOMString vendor)`
+- `window.setWebGLRenderer(DOMString renderer)`
+- `window.setWebRTCIPv4(DOMString ipv4)`
+- `window.setWebRTCIPv6(DOMString ipv6)`
+
+Để truyền những cấu hình này cho browser, khi sử dụng thư viện Playwright JS/Python, bạn cần chèn (inject) đoạn mã gọi các hàm trên vào context của trình duyệt (ví dụ: thông qua `page.addInitScript()` của Playwright).
+
+Ví dụ:
+```javascript
+await page.addInitScript(() => {
+    try {
+        window.setWebRTCIPv4("123.123.123.123");
+        window.setNavigatorPlatform("Win32");
+        window.setTimezone("America/New_York");
+    } catch(e) {}
+});
+```
+
+Điều này rất hữu ích đối với WebRTC spoofing hoặc khi cần thay đổi fingerprint ngay lúc Runtime (khi ứng dụng đã được mở) mà không cần khởi động lại tiến trình của Firefox.
