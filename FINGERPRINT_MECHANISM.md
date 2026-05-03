@@ -275,3 +275,79 @@ await page.addInitScript(() => {
 ```
 
 Điều này rất hữu ích đối với WebRTC spoofing hoặc khi cần thay đổi fingerprint ngay lúc Runtime (khi ứng dụng đã được mở) mà không cần khởi động lại tiến trình của Firefox.
+
+### Truyền CAMOU_CONFIG Bằng Mã Hoá AES-256 (Tự Giải Mã)
+
+Hệ thống MaskConfig (`MaskConfig.hpp`) đã được tinh chỉnh tích hợp thư viện `tiny-AES-c`. Bây giờ thay vì truyền chuỗi JSON gốc cho biến môi trường `CAMOU_CONFIG` (có thể bị các chương trình scan environment detect), bạn có thể mã hóa nó thành chuỗi Hexadecimal thông qua AES-256-CBC. Khi trình duyệt khởi động, `MaskConfig` sẽ tự động nhận chuỗi Hex, giải mã bằng khóa AES và IV cứng (hardcoded), sau đó lấy ra file JSON.
+
+**Thông số AES hiện tại đang cài đặt trong mã nguồn:**
+- Thuật toán: **AES-256-CBC**
+- Padding: **PKCS7**
+- Key (32 bytes): `CamoufoxSecretKeyForAES256Cipher`
+- IV (16 bytes): `0123456789ABCDEF`
+- Định dạng xuất: **Hex String**
+
+#### Demo Mã Hóa Bằng Node.js (RDPBrowser/Puppeteer/Selenium)
+Bạn có thể tham khảo file `jslib/aes_demo.js` hoặc dùng đoạn mã dưới đây:
+```javascript
+import crypto from 'crypto';
+import { spawn } from 'child_process';
+
+const data = {
+    "browser.profileName": "hoadeptrai",
+    "showcursor": false,
+    "battery:charging": false,
+    "battery:level": 0.55
+};
+
+const jsonStr = JSON.stringify(data);
+
+const key = Buffer.from('CamoufoxSecretKeyForAES256Cipher');
+const iv = Buffer.from('0123456789ABCDEF');
+
+const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
+let encrypted = cipher.update(jsonStr, 'utf8', 'hex');
+encrypted += cipher.final('hex');
+
+console.log("Truyền cấu hình này vào CAMOU_CONFIG:", encrypted);
+
+// Khởi chạy trình duyệt với RDP/CDP debugging
+const env = Object.assign({}, process.env, {
+    CAMOU_CONFIG: encrypted
+});
+
+const browserProcess = spawn('camoufox.exe', ['-remote-debugging-port', '9222'], { env });
+```
+
+#### Demo Mã Hóa Bằng Python (Selenium/Pyppeteer)
+```python
+import json
+import binascii
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
+import subprocess
+import os
+
+data = {
+    "browser.profileName": "hoadeptrai",
+    "showcursor": False,
+    "battery:charging": False,
+    "battery:level": 0.55
+}
+json_str = json.dumps(data)
+
+key = b"CamoufoxSecretKeyForAES256Cipher"
+iv = b"0123456789ABCDEF"
+
+cipher = AES.new(key, AES.MODE_CBC, iv)
+padded_data = pad(json_str.encode('utf-8'), AES.block_size)
+ciphertext = cipher.encrypt(padded_data)
+hex_str = binascii.hexlify(ciphertext).decode('utf-8')
+
+env = os.environ.copy()
+env['CAMOU_CONFIG'] = hex_str
+
+subprocess.Popen(['camoufox.exe', '-remote-debugging-port', '9222'], env=env)
+```
+
+Với cấu hình trên, bạn có thể thiết lập mã hóa `CAMOU_CONFIG` an toàn từ client (Node.js/Python) và Camoufox sẽ tự động giải mã. Những script cài đặt ban đầu (Juggler/Playwright hooks) như WebRTC IPv4/IPv6 qua `window.setWebRTCIPv4()` vẫn có thể chạy bình thường thông qua `Page.addScriptToEvaluateOnNewDocument` (RDP/CDP).
