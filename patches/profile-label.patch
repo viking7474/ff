@@ -1,7 +1,7 @@
-diff --git a/browser/components/urlbar/content/UrlbarInput.mjs b/browser/components/urlbar/content/UrlbarInput.mjs
+diff --git a/browser/components/urlbar/UrlbarInput.sys.mjs b/browser/components/urlbar/UrlbarInput.sys.mjs
 index 12345678..87654321 100644
---- a/browser/components/urlbar/content/UrlbarInput.mjs
-+++ b/browser/components/urlbar/content/UrlbarInput.mjs
+--- a/browser/components/urlbar/UrlbarInput.sys.mjs
++++ b/browser/components/urlbar/UrlbarInput.sys.mjs
 @@ -2119,6 +2119,29 @@
      return false;
    }

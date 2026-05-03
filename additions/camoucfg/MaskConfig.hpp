@@ -81,8 +81,8 @@ inline const nlohmann::json& GetJson() {
     // Or simpler: hardcode the IV and Key for the demo to prove it works.
     // Hardcoded Key: "CamoufoxSecretKeyForAES256Cipher" (32 bytes)
     // Hardcoded IV:  "0123456789ABCDEF" (16 bytes)
-    const uint8_t key[] = "CamoufoxSecretKeyForAES256Cipher";
-    const uint8_t iv[]  = "0123456789ABCDEF";
+    const uint8_t key[32] = { 'C','a','m','o','u','f','o','x','S','e','c','r','e','t','K','e','y','F','o','r','A','E','S','2','5','6','C','i','p','h','e','r' };
+    const uint8_t iv[16]  = { '0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F' };
 
     // Helper to decode hex
     auto hexToBytes = [](const std::string& hex) -> std::vector<uint8_t> {
