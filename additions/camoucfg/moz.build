@@ -14,7 +14,7 @@ EXPORTS += [
 ]
 
 SOURCES += [
-    "camou_aes.c",
+    "camou_aes.cpp",
 ]
 
 LOCAL_INCLUDES += [

@@ -4,9 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+
 
 
 // #define the macros below to 1/0 to enable/disable the mode of operation.
@@ -94,8 +92,6 @@ void camou_AES_CTR_xcrypt_buffer(struct camou_AES_ctx* ctx, uint8_t* buf, size_t
 
 
 
-#ifdef __cplusplus
-}
-#endif
+
 
 #endif // _CAMOU_AES_H_

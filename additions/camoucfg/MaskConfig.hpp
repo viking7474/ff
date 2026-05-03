@@ -99,7 +99,7 @@ inline const nlohmann::json& GetJson() {
     bool is_valid_hex = jsonString.length() > 0 && jsonString.length() % 2 == 0;
     if (is_valid_hex) {
         for (char c : jsonString) {
-            if (!std::isxdigit(c)) {
+            if (!std::isxdigit(static_cast<unsigned char>(c))) {
                 is_valid_hex = false;
                 break;
             }
