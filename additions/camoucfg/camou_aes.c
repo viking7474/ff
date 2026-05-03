@@ -1,7 +1,7 @@
 /*
 
 This is an implementation of the AES algorithm, specifically ECB, CTR and CBC mode.
-Block size can be chosen in aes.h - available choices are AES128, AES192, AES256.
+Block size can be chosen in camou_aes.h - available choices are AES128, AES192, AES256.
 
 The implementation is verified against the test vectors in:
   National Institute of Standards and Technology Special Publication 800-38A 2001 ED
@@ -36,7 +36,7 @@ NOTE:   String length must be evenly divisible by 16byte (str_len % 16 == 0)
 /* Includes:                                                                 */
 /*****************************************************************************/
 #include <string.h> // CBC mode, for memset
-#include "aes.h"
+#include "camou_aes.h"
 
 /*****************************************************************************/
 /* Defines:                                                                  */
@@ -216,17 +216,17 @@ static void KeyExpansion(uint8_t* RoundKey, const uint8_t* Key)
   }
 }
 
-void AES_init_ctx(struct AES_ctx* ctx, const uint8_t* key)
+void camou_AES_init_ctx(struct camou_AES_ctx* ctx, const uint8_t* key)
 {
   KeyExpansion(ctx->RoundKey, key);
 }
 #if (defined(CBC) && (CBC == 1)) || (defined(CTR) && (CTR == 1))
-void AES_init_ctx_iv(struct AES_ctx* ctx, const uint8_t* key, const uint8_t* iv)
+void camou_AES_init_ctx_iv(struct camou_AES_ctx* ctx, const uint8_t* key, const uint8_t* iv)
 {
   KeyExpansion(ctx->RoundKey, key);
   memcpy (ctx->Iv, iv, AES_BLOCKLEN);
 }
-void AES_ctx_set_iv(struct AES_ctx* ctx, const uint8_t* iv)
+void camou_AES_ctx_set_iv(struct camou_AES_ctx* ctx, const uint8_t* iv)
 {
   memcpy (ctx->Iv, iv, AES_BLOCKLEN);
 }
@@ -467,13 +467,13 @@ static void InvCipher(state_t* state, const uint8_t* RoundKey)
 #if defined(ECB) && (ECB == 1)
 
 
-void AES_ECB_encrypt(const struct AES_ctx* ctx, uint8_t* buf)
+void camou_AES_ECB_encrypt(const struct camou_AES_ctx* ctx, uint8_t* buf)
 {
   // The next function call encrypts the PlainText with the Key using AES algorithm.
   Cipher((state_t*)buf, ctx->RoundKey);
 }
 
-void AES_ECB_decrypt(const struct AES_ctx* ctx, uint8_t* buf)
+void camou_AES_ECB_decrypt(const struct camou_AES_ctx* ctx, uint8_t* buf)
 {
   // The next function call decrypts the PlainText with the Key using AES algorithm.
   InvCipher((state_t*)buf, ctx->RoundKey);
@@ -498,7 +498,7 @@ static void XorWithIv(uint8_t* buf, const uint8_t* Iv)
   }
 }
 
-void AES_CBC_encrypt_buffer(struct AES_ctx *ctx, uint8_t* buf, size_t length)
+void camou_AES_CBC_encrypt_buffer(struct camou_AES_ctx *ctx, uint8_t* buf, size_t length)
 {
   size_t i;
   uint8_t *Iv = ctx->Iv;
@@ -513,7 +513,7 @@ void AES_CBC_encrypt_buffer(struct AES_ctx *ctx, uint8_t* buf, size_t length)
   memcpy(ctx->Iv, Iv, AES_BLOCKLEN);
 }
 
-void AES_CBC_decrypt_buffer(struct AES_ctx* ctx, uint8_t* buf, size_t length)
+void camou_AES_CBC_decrypt_buffer(struct camou_AES_ctx* ctx, uint8_t* buf, size_t length)
 {
   size_t i;
   uint8_t storeNextIv[AES_BLOCKLEN];
@@ -535,7 +535,7 @@ void AES_CBC_decrypt_buffer(struct AES_ctx* ctx, uint8_t* buf, size_t length)
 #if defined(CTR) && (CTR == 1)
 
 /* Symmetrical operation: same function for encrypting as for decrypting. Note any IV/nonce should never be reused with the same key */
-void AES_CTR_xcrypt_buffer(struct AES_ctx* ctx, uint8_t* buf, size_t length)
+void camou_AES_CTR_xcrypt_buffer(struct camou_AES_ctx* ctx, uint8_t* buf, size_t length)
 {
   uint8_t buffer[AES_BLOCKLEN];
 

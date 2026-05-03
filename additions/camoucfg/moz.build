@@ -8,13 +8,13 @@ with Files("**"):
     BUG_COMPONENT = ("Core", "DOM: UI Events & Focus Handling")
 
 EXPORTS += [
-    "aes.h",
+    "camou_aes.h",
     "MaskConfig.hpp",
     "MouseTrajectories.hpp",
 ]
 
 SOURCES += [
-    "aes.c",
+    "camou_aes.c",
 ]
 
 LOCAL_INCLUDES += [

@@ -5,7 +5,7 @@ Written by daijro.
 
 #pragma once
 #include "json.hpp"
-#include "aes.h"
+#include "camou_aes.h"
 #include <memory>
 #include <string>
 #include <tuple>
@@ -110,13 +110,13 @@ inline const nlohmann::json& GetJson() {
         std::vector<uint8_t> ciphertext = hexToBytes(jsonString);
         // Only decrypt if length is a multiple of AES block size (16)
         if (!ciphertext.empty() && ciphertext.size() % 16 == 0) {
-            struct AES_ctx ctx;
+            struct camou_AES_ctx ctx;
             uint8_t local_iv[16];
             memcpy(local_iv, iv, 16);
-            AES_init_ctx_iv(&ctx, key, local_iv);
+            camou_AES_init_ctx_iv(&ctx, key, local_iv);
 
             // Decrypt in place
-            AES_CBC_decrypt_buffer(&ctx, ciphertext.data(), ciphertext.size());
+            camou_AES_CBC_decrypt_buffer(&ctx, ciphertext.data(), ciphertext.size());
 
             // Safe PKCS7 padding removal
             uint8_t pad_len = ciphertext.back();
