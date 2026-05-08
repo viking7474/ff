@@ -10,10 +10,12 @@ with Files("**"):
 EXPORTS += [
     "MaskConfig.hpp",
     "MouseTrajectories.hpp",
+    "WinfoxConfigCrypto.hpp",
 ]
 
 LOCAL_INCLUDES += [
     "/camoucfg",
 ]
+
 
 FINAL_LIBRARY = "xul"

@@ -1,0 +1,15 @@
+{
+  "allowAddonNewtab": true,
+  "canvas:seed": 123456,
+  "audio:seed": 654321,
+  "timezone": "Asia/Ho_Chi_Minh",
+  "navigator:userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:149.0) Gecko/20100101 Firefox/149.0",
+  "navigator:platform": "Win32",
+  "navigator:oscpu": "Windows NT 10.0; Win64; x64",
+  "navigator:hardwareConcurrency": 8,
+  "screen.width": 1920,
+  "screen.height": 1080,
+  "screen.colorDepth": 24,
+  "webgl:vendor": "Intel Inc.",
+  "webgl:renderer": "Intel Iris OpenGL Engine"
+}

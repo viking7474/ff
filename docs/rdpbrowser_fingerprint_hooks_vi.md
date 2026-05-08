@@ -122,9 +122,9 @@ async def main():
         "navigator:platform": "Win32",
         "navigator:oscpu": "Windows NT 10.0; Win64; x64",
         "navigator:hardwareConcurrency": 8,
-        "screen:width": 1920,
-        "screen:height": 1080,
-        "screen:colorDepth": 24,
+        "screen.width": 1920,
+        "screen.height": 1080,
+        "screen.colorDepth": 24,
     }
 
     async with RDPBrowser(

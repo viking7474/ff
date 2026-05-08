@@ -37,6 +37,7 @@ logging.getLogger("geckordp").setLevel(logging.CRITICAL)
 EXTENSION_DIR = str(Path(__file__).resolve().parents[1] / "extension")
 DEFAULT_RDP_PORT = 6000
 DEFAULT_WS_PORT = 8775
+DEFAULT_MAX_ENV_SIZE = 28000
 
 
 def _create_job_object():
@@ -112,6 +113,10 @@ def _write_user_prefs(profile_dir: str, prefs: Dict[str, Any]) -> None:
             file_handle.write(f'user_pref("{key}", {val_str});\n')
 
 
+def _estimate_env_block_size(env: Dict[str, str]) -> int:
+    return sum(len(key) + 1 + len(value) + 1 for key, value in env.items())
+
+
 class RDPBrowser:
     _init_semaphore: Optional[asyncio.Semaphore] = None
 
@@ -135,7 +140,22 @@ class RDPBrowser:
         profile_path: Optional[str] = None,
         extension_dir: str = EXTENSION_DIR,
         fingerprint: Optional[Dict[str, Any]] = None,
+        encrypted_config_env: Optional[Dict[str, str]] = None,
     ):
+        if encrypted_config_env is not None:
+            if fingerprint is not None:
+                raise ValueError(
+                    "fingerprint cannot be used together with encrypted_config_env"
+                )
+            if timezone is not None:
+                raise ValueError(
+                    "timezone cannot be used together with encrypted_config_env"
+                )
+            if locale is not None:
+                raise ValueError(
+                    "locale cannot be used together with encrypted_config_env"
+                )
+
         self._fingerprint = fingerprint
         if fingerprint:
             if not viewport:
@@ -164,6 +184,7 @@ class RDPBrowser:
         self._user_prefs = firefox_user_prefs or {}
         self._profile_path = profile_path
         self._extension_dir = extension_dir
+        self._encrypted_config_env = dict(encrypted_config_env or {})
         self._proc: Optional[subprocess.Popen] = None
         self._job = None
         self._client: Optional[RDPClient] = None
@@ -375,6 +396,9 @@ class RDPBrowser:
             profile_path=overrides.get("profile_path"),
             extension_dir=overrides.get("extension_dir", EXTENSION_DIR),
             fingerprint=overrides.get("fingerprint", self._fingerprint),
+            encrypted_config_env=overrides.get(
+                "encrypted_config_env", dict(self._encrypted_config_env)
+            ),
         )
         child._ports_reserved = True
         child._init_script_hooks = list(self._init_script_hooks)
@@ -735,22 +759,75 @@ class RDPBrowser:
             args.append("--headless")
 
         env = os.environ.copy()
-        runtime_config = {"allowAddonNewtab": True}
-        if self._fingerprint:
-            fp_config = {k: v for k, v in self._fingerprint.items() if not k.startswith("_")}
-            runtime_config.update(fp_config)
-            if self._timezone:
-                env["TZ"] = self._timezone
-        elif self._timezone:
-            env["TZ"] = self._timezone
-        if self._timezone:
-            runtime_config["timezone"] = self._timezone
+        if self._encrypted_config_env:
+            mode = self._encrypted_config_env.get("WINFOX_CONFIG_MODE")
+            if not mode:
+                raise ValueError(
+                    "encrypted_config_env is missing WINFOX_CONFIG_MODE"
+                )
+            if "WINFOX_CONFIG_IV" not in self._encrypted_config_env:
+                raise ValueError(
+                    "encrypted_config_env is missing WINFOX_CONFIG_IV"
+                )
+            if "WINFOX_CONFIG_HMAC" not in self._encrypted_config_env:
+                raise ValueError(
+                    "encrypted_config_env is missing WINFOX_CONFIG_HMAC"
+                )
 
-        config_str = json.dumps(runtime_config)
-        chunk_size = 2047
-        for i in range(0, len(config_str), chunk_size):
-            chunk = config_str[i : i + chunk_size]
-            env[f"CAMOU_CONFIG_{(i // chunk_size) + 1}"] = chunk
+            has_single = "WINFOX_CONFIG_ENC" in self._encrypted_config_env
+            has_count = "WINFOX_CONFIG_ENC_COUNT" in self._encrypted_config_env
+            if not has_single and not has_count:
+                raise ValueError(
+                    "encrypted_config_env must provide WINFOX_CONFIG_ENC or WINFOX_CONFIG_ENC_COUNT"
+                )
+            if has_count:
+                try:
+                    chunk_count = int(self._encrypted_config_env["WINFOX_CONFIG_ENC_COUNT"])
+                except ValueError as exc:
+                    raise ValueError(
+                        "WINFOX_CONFIG_ENC_COUNT must be an integer"
+                    ) from exc
+                if chunk_count <= 0:
+                    raise ValueError(
+                        "WINFOX_CONFIG_ENC_COUNT must be greater than zero"
+                    )
+                for index in range(1, chunk_count + 1):
+                    key = f"WINFOX_CONFIG_ENC_{index}"
+                    if key not in self._encrypted_config_env:
+                        raise ValueError(
+                            f"encrypted_config_env is missing {key}"
+                        )
+            env.update(self._encrypted_config_env)
+            estimated_env_size = _estimate_env_block_size(env)
+            if estimated_env_size > DEFAULT_MAX_ENV_SIZE:
+                chunk_count = self._encrypted_config_env.get(
+                    "WINFOX_CONFIG_ENC_COUNT", "1"
+                )
+                raise ValueError(
+                    "Encrypted config too large for env transport. "
+                    f"Estimated env size: {estimated_env_size}. "
+                    f"Configured limit: {DEFAULT_MAX_ENV_SIZE}. "
+                    f"Chunk count: {chunk_count}."
+                )
+        else:
+            runtime_config = {"allowAddonNewtab": True}
+            if self._fingerprint:
+                fp_config = {
+                    k: v for k, v in self._fingerprint.items() if not k.startswith("_")
+                }
+                runtime_config.update(fp_config)
+                if self._timezone:
+                    env["TZ"] = self._timezone
+            elif self._timezone:
+                env["TZ"] = self._timezone
+            if self._timezone:
+                runtime_config["timezone"] = self._timezone
+
+            config_str = json.dumps(runtime_config)
+            chunk_size = 2047
+            for i in range(0, len(config_str), chunk_size):
+                chunk = config_str[i : i + chunk_size]
+                env[f"CAMOU_CONFIG_{(i // chunk_size) + 1}"] = chunk
 
         logger.info(f"Launching Camoufox RDP on port {self._rdp_port}")
         self._proc = subprocess.Popen(args, env=env)

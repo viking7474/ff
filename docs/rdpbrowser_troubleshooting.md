@@ -41,6 +41,39 @@ Things to check:
 2. run `tests/rdpbrowser_smoke.py` first before more advanced tests
 3. verify the build still includes the extension experiment API and addon loading path
 
+## Encrypted Config
+
+### `ERROR: Failed to load encrypted WINFOX config`
+
+Cause:
+
+1. one or more `WINFOX_CONFIG_*` variables are missing
+2. `WINFOX_CONFIG_HMAC` does not match the encrypted payload
+3. ciphertext, IV, or HMAC are not valid base64
+4. decrypt or zlib-decompress failed
+5. decrypted plaintext is not valid JSON
+
+Things to check:
+
+1. `WINFOX_CONFIG_MODE=cbc-hmac-zlib`
+2. `WINFOX_CONFIG_IV` is present
+3. `WINFOX_CONFIG_HMAC` is present
+4. either `WINFOX_CONFIG_ENC` is present, or `WINFOX_CONFIG_ENC_COUNT` plus all `WINFOX_CONFIG_ENC_1...N` chunks are present
+5. the same AES key and HMAC key were used by the external encryption service
+6. for a server-side reference encoder, see `docs/winfox_encrypted_config_reference.md` and `tools/encode_winfox_config.py`
+
+### `ValueError` from `RDPBrowser(..., encrypted_config_env=...)`
+
+Cause:
+
+1. encrypted env is missing required keys
+2. `fingerprint`, `timezone`, or `locale` were passed together with `encrypted_config_env`
+
+Fix:
+
+1. pass encrypted identity only through `encrypted_config_env`
+2. do not mix encrypted identity transport with Python-side fingerprint/timezone/locale overrides
+
 ## `new_page()` Problems
 
 ### `TimeoutError: Timed out waiting for a new tab actor`

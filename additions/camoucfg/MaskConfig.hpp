@@ -4,6 +4,7 @@ Written by daijro.
 */
 
 #pragma once
+#include "WinfoxConfigCrypto.hpp"
 #include "json.hpp"
 #include <memory>
 #include <string>
@@ -11,6 +12,7 @@ Written by daijro.
 #include <optional>
 #include <codecvt>
 #include "mozilla/glue/Debug.h"
+#include <cerrno>
 #include <cstdlib>
 #include <cstdio>
 #include <mutex>
@@ -46,27 +48,136 @@ inline std::optional<std::string> get_env_utf8(const std::string& name) {
 #endif
 }
 
+inline void DebugEncryptedConfig(const std::string& message) {
+  auto debugPath = get_env_utf8("WINFOX_CONFIG_DEBUG_PATH");
+  if (!debugPath || debugPath->empty()) {
+    return;
+  }
+  FILE* file = fopen(debugPath->c_str(), "ab");
+  if (!file) {
+    return;
+  }
+  fwrite(message.data(), 1, message.size(), file);
+  fwrite("\n", 1, 1, file);
+  fclose(file);
+}
+
+inline std::optional<std::string> LoadPlaintextConfigString() {
+  std::string jsonString;
+  int index = 1;
+
+  while (true) {
+    std::string envName = "CAMOU_CONFIG_" + std::to_string(index);
+    auto partialConfig = get_env_utf8(envName);
+    if (!partialConfig) break;
+    jsonString += *partialConfig;
+    index++;
+  }
+
+  if (jsonString.empty()) {
+    auto originalConfig = get_env_utf8("CAMOU_CONFIG");
+    if (originalConfig) jsonString = *originalConfig;
+  }
+
+  if (jsonString.empty()) {
+    return std::nullopt;
+  }
+  return jsonString;
+}
+
+inline std::optional<std::string> LoadEncryptedPayloadFromEnv(
+    std::string& error) {
+  if (auto singleBlob = get_env_utf8("WINFOX_CONFIG_ENC"); singleBlob) {
+    return singleBlob;
+  }
+
+  auto countStr = get_env_utf8("WINFOX_CONFIG_ENC_COUNT");
+  if (!countStr) {
+    error = "encrypted config missing WINFOX_CONFIG_ENC or WINFOX_CONFIG_ENC_COUNT";
+    return std::nullopt;
+  }
+
+  errno = 0;
+  char* endPtr = nullptr;
+  long parsedCount = std::strtol(countStr->c_str(), &endPtr, 10);
+  if (errno != 0 || endPtr == countStr->c_str() || *endPtr != '\0') {
+    error = "encrypted config has invalid WINFOX_CONFIG_ENC_COUNT";
+    return std::nullopt;
+  }
+  int count = static_cast<int>(parsedCount);
+  if (count <= 0) {
+    error = "encrypted config has non-positive WINFOX_CONFIG_ENC_COUNT";
+    return std::nullopt;
+  }
+
+  std::string cipherText;
+  for (int index = 1; index <= count; ++index) {
+    std::string envName = "WINFOX_CONFIG_ENC_" + std::to_string(index);
+    auto chunk = get_env_utf8(envName);
+    if (!chunk) {
+      error = "encrypted config is missing one or more chunks";
+      return std::nullopt;
+    }
+    cipherText += *chunk;
+  }
+  return cipherText;
+}
+
+inline std::optional<std::string> LoadEncryptedConfigString(
+    std::string& error) {
+  auto mode = get_env_utf8("WINFOX_CONFIG_MODE");
+  if (!mode) {
+    return std::nullopt;
+  }
+
+  auto iv = get_env_utf8("WINFOX_CONFIG_IV");
+  if (!iv) {
+    error = "encrypted config missing WINFOX_CONFIG_IV";
+    return std::nullopt;
+  }
+
+  auto hmac = get_env_utf8("WINFOX_CONFIG_HMAC");
+  if (!hmac) {
+    error = "encrypted config missing WINFOX_CONFIG_HMAC";
+    return std::nullopt;
+  }
+
+  auto cipherText = LoadEncryptedPayloadFromEnv(error);
+  if (!cipherText) {
+    return std::nullopt;
+  }
+
+  std::string jsonString;
+  if (!WinfoxConfigCrypto::DecodeAndDecryptConfig(*mode, *iv, *cipherText,
+                                                  *hmac, jsonString, error)) {
+    return std::nullopt;
+  }
+  return jsonString;
+}
+
 inline const nlohmann::json& GetJson() {
   static std::once_flag initFlag;
   static nlohmann::json jsonConfig;
 
   std::call_once(initFlag, []() {
     std::string jsonString;
-    int index = 1;
+    std::string error;
 
-    while (true) {
-      std::string envName = "CAMOU_CONFIG_" + std::to_string(index);
-      auto partialConfig = get_env_utf8(envName);
-      if (!partialConfig) break;
-
-      jsonString += *partialConfig;
-      index++;
-    }
-
-    if (jsonString.empty()) {
-      // Check for the original CAMOU_CONFIG as fallback
-      auto originalConfig = get_env_utf8("CAMOU_CONFIG");
-      if (originalConfig) jsonString = *originalConfig;
+    if (get_env_utf8("WINFOX_CONFIG_MODE")) {
+      DebugEncryptedConfig("encrypted mode detected");
+      auto encryptedConfig = LoadEncryptedConfigString(error);
+      if (!encryptedConfig) {
+        printf_stderr("ERROR: Failed to load encrypted WINFOX config: %s\n",
+                      error.c_str());
+        DebugEncryptedConfig(std::string("encrypted load failed: ") + error);
+        jsonConfig = nlohmann::json{};
+        return;
+      }
+      jsonString = *encryptedConfig;
+      DebugEncryptedConfig(std::string("encrypted load ok, json bytes=") +
+                           std::to_string(jsonString.size()));
+    } else if (auto plaintextConfig = LoadPlaintextConfigString()) {
+      jsonString = *plaintextConfig;
     }
 
     if (jsonString.empty()) {
@@ -77,11 +188,13 @@ inline const nlohmann::json& GetJson() {
     // Validate
     if (!nlohmann::json::accept(jsonString)) {
       printf_stderr("ERROR: Invalid JSON passed to CAMOU_CONFIG!\n");
+      DebugEncryptedConfig("json accept failed after load");
       jsonConfig = nlohmann::json{};
       return;
     }
 
     jsonConfig = nlohmann::json::parse(jsonString);
+    DebugEncryptedConfig("json parse ok");
   });
 
   return jsonConfig;
