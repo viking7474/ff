@@ -30,4 +30,13 @@ export class RDPContext {
     this._closed = true;
     this._parentBrowser._contexts = this._parentBrowser._contexts.filter(c => c !== this);
   }
+  async saveState(): Promise<Record<string, any>> {
+    if (this._closed) throw new Error("Context is closed");
+    return await this._browser.saveState();
+  }
+
+  async loadState(state: Record<string, any>, options: { clearExisting?: boolean } = {}): Promise<Record<string, number>> {
+    if (this._closed) throw new Error("Context is closed");
+    return await this._browser.loadState(state, options);
+  }
 }

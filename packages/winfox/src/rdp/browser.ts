@@ -164,4 +164,87 @@ export class RDPBrowser {
       page.dispose();
       this._pages = this._pages.filter(p => p !== page);
   }
+
+  async newContext(overrides: any = {}): Promise<RDPContext> {
+     // For basic implementation, simulate context via child browser instance if real isolation is needed, or just return wrapper.
+     // Python lib spawns a whole child browser.
+     const rdpPort = overrides.rdpPort || await PORT_ALLOCATOR.findAndReserve(this._rdpPort + 100);
+     const wsPort = overrides.wsPort || await PORT_ALLOCATOR.findAndReserve(this._wsPort + 100);
+     const child = new RDPBrowser({
+         executablePath: overrides.executablePath || this._executable,
+         headless: overrides.headless ?? this._headless,
+         viewport: overrides.viewport || this._viewport,
+         rdpPort,
+         wsPort,
+         extensionDir: overrides.extensionDir || this._extensionDir
+     });
+     await child.start();
+     const context = new RDPContext(this, child);
+     this._contexts.push(context);
+     return context;
+  }
+
+  contexts(): RDPContext[] {
+     this._contexts = this._contexts.filter(c => !c.isClosed());
+     return this._contexts;
+  }
+
+  async saveState(): Promise<Record<string, any>> {
+     const state: Record<string, any> = { cookies: [], origins: [] };
+     if (this._bridge?.isConnected) {
+        try {
+           const res = await this._bridge.sendCommand("getCookies", {}, 10);
+           state.cookies = res?.cookies || [];
+        } catch(e) {}
+     }
+     const seenOrigins = new Set<string>();
+     for (const page of this.listPages()) {
+        try {
+           const urlStr = await page.urlFresh();
+           const url = new URL(urlStr);
+           if (!["http:", "https:"].includes(url.protocol) || !url.host) continue;
+           const origin = `${url.protocol}//${url.host}`;
+           if (seenOrigins.has(origin)) continue;
+           seenOrigins.add(origin);
+           const localStorage = await page.getLocalStorage();
+           state.origins.push({ origin, localStorage });
+        } catch(e) {}
+     }
+     return state;
+  }
+
+  async loadState(state: Record<string, any>, options: { clearExisting?: boolean } = {}): Promise<Record<string, number>> {
+     const cookies = state.cookies || [];
+     const origins = state.origins || [];
+     let cookiesSet = 0;
+     let originsLoaded = 0;
+
+     if (options.clearExisting && this._bridge?.isConnected) {
+        try { await this._bridge.sendCommand("clearCookies", {}, 10); } catch(e) {}
+     }
+
+     if (cookies.length > 0 && this._bridge?.isConnected) {
+        try {
+           const res = await this._bridge.sendCommand("setCookies", { cookies }, 15);
+           cookiesSet = res?.set || 0;
+        } catch(e) {}
+     }
+
+     for (const entry of origins) {
+         if (!entry.origin) continue;
+         const page = await this.newPage();
+         try {
+             await page.goto(entry.origin);
+             await page.waitForLoadState("load");
+             await page.clearLocalStorage();
+             if (entry.localStorage && Object.keys(entry.localStorage).length > 0) {
+                 await page.setLocalStorage(entry.localStorage);
+             }
+             originsLoaded++;
+         } finally {
+             await page.close();
+         }
+     }
+     return { cookiesSet, originsLoaded };
+  }
 }

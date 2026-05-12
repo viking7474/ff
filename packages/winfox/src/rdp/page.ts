@@ -352,4 +352,61 @@ export class RDPPage extends EventEmitter {
       }
       return Buffer.from("");
   }
+  async waitForLoadState(state: string = "load", timeout: number = 30000): Promise<void> {
+    this._ensureOpen();
+    const target = state === "load" || state === "networkidle" ? "complete" : "interactive";
+    try {
+       const current = await this.evaluate("document.readyState");
+       if (current === target || current === "complete") return;
+    } catch(e) {}
+
+    const goal = state === "load" || state === "networkidle" ? "dom-complete" : "dom-interactive";
+
+    let loadDone = false;
+    let listenersCb: any;
+
+    if (!this._consoleStarted) {
+       await new WebConsoleActor(this._client, this._consoleActorId).start_listeners([WebConsoleActor.Listeners.DOCUMENT_EVENTS]);
+       this._consoleStarted = true;
+    }
+
+    await new Promise<void>((resolve) => {
+        listenersCb = (data: any) => {
+           const name = data.name || "";
+           if (data.url) this._url = data.url;
+           if (name === goal || name === "dom-complete") {
+               loadDone = true;
+               resolve();
+           }
+        };
+        this._client.add_event_listener(this._consoleActorId, Events.WebConsole.DOCUMENT_EVENT, listenersCb);
+        setTimeout(() => { if (!loadDone) { loadDone = true; resolve(); } }, timeout);
+    });
+
+    this._client.remove_event_listener(this._consoleActorId, Events.WebConsole.DOCUMENT_EVENT, listenersCb);
+  }
+
+  async setLocalStorage(data: Record<string, any>): Promise<void> {
+    this._ensureOpen();
+    const payload = JSON.stringify(Object.fromEntries(Object.entries(data).map(([k, v]) => [String(k), v === null ? "" : String(v)])));
+    await this.evaluate(`(() => {
+      const data = ${payload};
+      for (const [k, v] of Object.entries(data)) localStorage.setItem(k, v);
+      return true;
+    })()`);
+  }
+
+  async getLocalStorage(): Promise<Record<string, string>> {
+    this._ensureOpen();
+    const result = await this.evaluate(`JSON.stringify(Object.fromEntries(Object.keys(localStorage).map(k => [k, localStorage.getItem(k)])))`);
+    if (typeof result === "string") {
+        try { return JSON.parse(result); } catch(e) {}
+    }
+    return {};
+  }
+
+  async clearLocalStorage(): Promise<void> {
+    this._ensureOpen();
+    await this.evaluate("localStorage.clear(); true");
+  }
 }
