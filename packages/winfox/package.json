@@ -22,7 +22,11 @@
     "test": "npm run build && node --test dist/test/resolve.test.js"
   },
   "dependencies": {
-    "playwright": "^1.54.2"
+    "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.18.1",
+    "playwright": "^1.54.2",
+    "uuid": "^14.0.0",
+    "ws": "^8.20.1"
   },
   "devDependencies": {
     "@types/node": "^22.15.29",

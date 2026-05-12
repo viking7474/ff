@@ -25,3 +25,7 @@ export type {
   WinfoxLaunchOptions,
   WinfoxPersistentContextLaunchOptions,
 } from "./types.js";
+
+export * as rdp from "./rdp/index.js";
+export * as humanize from "./humanize.js";
+export * as geckordp from "./geckordp/index.js";
