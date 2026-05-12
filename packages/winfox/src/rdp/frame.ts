@@ -6,16 +6,16 @@ export class FrameLocator {
   private _index: number | null;
   private _mode: string | null;
   private _value: string | null;
-  private _exact: boolean;
-  private _roleName: string | null;
-  private _roleNameExact: boolean;
-  private _hasText: string | null;
-  private _hasTextExact: boolean;
+  private _exact?: boolean | undefined;
+  private _roleName?: string | null;
+  private _roleNameExact?: boolean | undefined;
+  private _hasText?: string | null;
+  private _hasTextExact?: boolean | undefined;
   private _parent: FrameLocator | null;
 
   constructor(frame: RDPFrame, selector: string, options: {
-    index?: number | null, mode?: string | null, value?: string | null, exact?: boolean,
-    roleName?: string | null, roleNameExact?: boolean, hasText?: string | null, hasTextExact?: boolean, parent?: FrameLocator | null
+    index?: number | null, mode?: string | null, value?: string | null, exact?: boolean | undefined,
+    roleName?: string | null | undefined, roleNameExact?: boolean | undefined, hasText?: string | null | undefined, hasTextExact?: boolean | undefined, parent?: FrameLocator | null
   } = {}) {
     this._frame = frame;
     this._selector = selector;
@@ -102,7 +102,7 @@ export class FrameLocator {
 
   private _applyTextFilter(collectionExpr: string): string {
     if (this._hasText === null) return collectionExpr;
-    const text = this._hasText.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    const text = this._hasText!.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
     const matcher = this._hasTextExact ? `txt.trim() === '${text}'` : `txt.includes('${text}')`;
     return `(function(){ return (${collectionExpr}).filter(el => { var txt=(el.innerText||el.textContent||''); return ${matcher}; }); })()`;
   }

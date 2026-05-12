@@ -27,7 +27,7 @@ const _TRAITS: Record<string, Record<string, number>> = {
   },
 };
 
-let currentPersonality: { trait: string, mult: Record<string, number> } | null = null;
+let currentPersonality: { trait: string, mult: Record<string, number> } | undefined = undefined;
 
 export function setPersonality(trait?: string, seed?: number): { trait: string, mult: Record<string, number> } {
   if (!trait) {
@@ -37,15 +37,15 @@ export function setPersonality(trait?: string, seed?: number): { trait: string, 
     else trait = "sloppy";
   }
   if (!_TRAITS[trait]) trait = "normal";
-  currentPersonality = { trait, mult: _TRAITS[trait] };
-  return currentPersonality;
+  currentPersonality = { trait, mult: (_TRAITS[trait] || _TRAITS["normal"]) as Record<string, number> };
+  return currentPersonality as any;
 }
 
 export function getPersonality() {
   if (!currentPersonality) {
     return { trait: "normal", mult: _TRAITS["normal"] };
   }
-  return currentPersonality;
+  return currentPersonality as any;
 }
 
 function _mult(key: string): number {
@@ -147,12 +147,12 @@ function _velocityAt(t: number, submovements: [number, number, number, number][]
 function _bezierCubic(t: number, p0: number[], p1: number[], p2: number[], p3: number[]) {
   const u = 1 - t;
   return [
-    u * u * u * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * p3[0],
-    u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1]
+    u * u * u * p0[0]! + 3 * u * u * t * p1[0]! + 3 * u * t * t * p2[0]! + t * t * t * p3[0]!,
+    u * u * u * p0[1]! + 3 * u * u * t * p1[1]! + 3 * u * t * t * p2[1]! + t * t * t * p3[1]!
   ];
 }
 
-function _controlPoints(sx: number, sy: number, ex: number, ey: number) {
+function _controlPoints(sx: number, sy: number, ex: number, ey: number): [number[], number[]] {
   const dx = ex - sx, dy = ey - sy;
   const dist = Math.sqrt(dx * dx + dy * dy) || 1.0;
   const px = -dy / dist, py = dx / dist;
@@ -166,7 +166,7 @@ function _controlPoints(sx: number, sy: number, ex: number, ey: number) {
 }
 
 function _buildCurve(sx: number, sy: number, ex: number, ey: number, nSamples = 500) {
-  const [c1, c2] = _controlPoints(sx, sy, ex, ey);
+  const [c1, c2] = _controlPoints(sx, sy, ex, ey) as [number[], number[]];
   const p0 = [sx, sy], p3 = [ex, ey];
   const points: number[][] = [];
   const arcLengths: number[] = [0.0];
@@ -176,7 +176,7 @@ function _buildCurve(sx: number, sy: number, ex: number, ey: number, nSamples = 
     const [x, y] = _bezierCubic(frac, p0, c1, c2, p3);
     points.push([x, y]);
     if (i > 0) {
-      const d = Math.sqrt(Math.pow(x - prevX, 2) + Math.pow(y - prevY, 2));
+      const d = Math.sqrt(Math.pow((x as number) - prevX, 2) + Math.pow((y as number) - prevY, 2));
       arcLengths.push(arcLengths[arcLengths.length - 1] + d);
     }
     prevX = x; prevY = y;
@@ -190,13 +190,13 @@ function _lookupPosition(curvePoints: number[][], arcLengths: number[], targetS:
   let lo = 0, hi = arcLengths.length - 1;
   while (lo < hi - 1) {
     const mid = Math.floor((lo + hi) / 2);
-    if (arcLengths[mid] <= targetS) lo = mid;
+    if (arcLengths[mid]! <= targetS) lo = mid;
     else hi = mid;
   }
   if (arcLengths[hi] === arcLengths[lo]) return curvePoints[lo];
-  const frac = (targetS - arcLengths[lo]) / (arcLengths[hi] - arcLengths[lo]);
-  const x = curvePoints[lo][0] + frac * (curvePoints[hi][0] - curvePoints[lo][0]);
-  const y = curvePoints[lo][1] + frac * (curvePoints[hi][1] - curvePoints[lo][1]);
+  const frac = (targetS - arcLengths[lo]!) / (arcLengths[hi]! - arcLengths[lo]!);
+  const x = curvePoints[lo]![0]! + frac * (curvePoints[hi]![0]! - curvePoints[lo]![0]!);
+  const y = curvePoints[lo]![1]! + frac * (curvePoints[hi]![1]! - curvePoints[lo]![1]!);
   return [x, y];
 }
 
@@ -256,8 +256,8 @@ function _generateSegment(sx: number, sy: number, ex: number, ey: number, target
     sAtT.push([t, cumS]);
     prevV = v;
   }
-  const actualTotal = sAtT[sAtT.length - 1][1];
-  const scale = actualTotal > 1e-6 ? totalArc / actualTotal : 1.0;
+  const actualTotal = sAtT[sAtT.length - 1]![1];
+  const scale = (actualTotal as number) > 1e-6 ? (totalArc as number) / (actualTotal as number) : 1.0;
   const outputDt = duration / nPoints;
   const tremorFreq = 8 + Math.random() * 4;
   const tremorAmp = (0.3 + Math.random() * 0.9) * _mult("tremor_amp");
@@ -265,11 +265,11 @@ function _generateSegment(sx: number, sy: number, ex: number, ey: number, target
   let sIdx = 0;
   for (let i = 0; i <= nPoints; i++) {
     const tTarget = i * outputDt;
-    while (sIdx < sAtT.length - 1 && sAtT[sIdx + 1][0] <= tTarget) sIdx++;
+    while (sIdx < sAtT.length - 1 && sAtT[sIdx + 1]![0]! <= tTarget) sIdx++;
     let sNow = 0;
     if (sIdx < sAtT.length - 1) {
-      const [tLo, sLo] = sAtT[sIdx];
-      const [tHi, sHi] = sAtT[sIdx + 1];
+      const [tLo, sLo] = sAtT[sIdx] as [number, number];
+      const [tHi, sHi] = sAtT[sIdx + 1] as [number, number];
       const dtSpan = tHi - tLo;
       const frac = dtSpan > 1e-10 ? (tTarget - tLo) / dtSpan : 0.0;
       sNow = (sLo + frac * (sHi - sLo)) * scale;
@@ -286,7 +286,7 @@ function _generateSegment(sx: number, sy: number, ex: number, ey: number, target
   }
   if (points.length > 0) {
     const last = points[points.length - 1];
-    points[points.length - 1] = [ex, ey, last[2]];
+    points[points.length - 1] = [ex, ey, last![2]];
   }
   return points;
 }
@@ -300,7 +300,7 @@ export function generatePath(sx: number, sy: number, ex: number, ey: number, tar
     const path = _generateSegment(sx, sy, ox, oy, targetWidth);
     if (path.length > 0) {
       const last = path[path.length - 1];
-      path[path.length - 1] = [last[0], last[1], 0.08 + Math.random() * 0.07];
+      path[path.length - 1] = [last![0]!, last![1]!, 0.08 + Math.random() * 0.07];
     }
     const correction = _generateSegment(ox, oy, ex, ey, targetWidth * 2);
     return path.concat(correction);
@@ -313,12 +313,12 @@ export function generatePath(sx: number, sy: number, ex: number, ey: number, tar
     const segment = _generateSegment(cx, cy, wx, wy, targetWidth);
     if (i < waypoints.length - 1 && segment.length > 0) {
       const last = segment[segment.length - 1];
-      segment[segment.length - 1] = [last[0], last[1], 0.08 + Math.random() * 0.12];
+      segment[segment.length - 1] = [last![0]!, last![1]!, 0.08 + Math.random() * 0.12];
     }
     path = path.concat(segment);
     if (segment.length > 0) {
-      cx = segment[segment.length - 1][0];
-      cy = segment[segment.length - 1][1];
+      cx = segment[segment.length - 1]![0]!;
+      cy = segment[segment.length - 1]![1]!;
     }
   }
   return path;
@@ -348,7 +348,7 @@ export function scrollSequence(totalDelta: number): [number, number][] {
     }
     if (remaining > 5) {
       const decayEvents = 2 + Math.floor(Math.random() * 3);
-      let decayDelta = events.length > 0 ? events[events.length - 1][0] : burstBase * sign * 0.5;
+      let decayDelta = events.length > 0 ? events[events.length - 1]![0] : burstBase * sign * 0.5;
       for (let k = 0; k < decayEvents; k++) {
         decayDelta *= (0.4 + Math.random() * 0.3);
         if (Math.abs(decayDelta) < 5) break;

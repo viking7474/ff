@@ -31,8 +31,8 @@ export class Mouse {
       if (delay > 0) await new Promise(r => setTimeout(r, delay * 1000));
     }
     if (path.length > 0) {
-      this._x = path[path.length - 1][0];
-      this._y = path[path.length - 1][1];
+      this._x = path[path.length - 1]![0]!;
+      this._y = path[path.length - 1]![1]!;
     }
   }
 
