@@ -11,5 +11,11 @@
     "test": "npm run test --workspace winfox",
     "test:build-tester": "npm run test --workspace winfox-build-tester",
     "test:service-tester": "npm run test --workspace winfox-service-tester"
+  },
+  "dependencies": {
+    "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.18.1",
+    "uuid": "^14.0.0",
+    "ws": "^8.20.1"
   }
 }
