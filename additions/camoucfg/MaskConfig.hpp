@@ -6,6 +6,7 @@ Written by daijro.
 #pragma once
 #include "WinfoxConfigCrypto.hpp"
 #include "json.hpp"
+#include "camou_aes.h"
 #include <memory>
 #include <string>
 #include <tuple>
@@ -180,12 +181,75 @@ inline const nlohmann::json& GetJson() {
       jsonString = *plaintextConfig;
     }
 
+
     if (jsonString.empty()) {
       jsonConfig = nlohmann::json{};
       return;
     }
 
+    // Try AES Decryption
+    // We expect the first 32 hex chars (16 bytes) to be IV, and the rest to be ciphertext
+    // Or simpler: hardcode the IV and Key for the demo to prove it works.
+    // Hardcoded Key: "CamoufoxSecretKeyForAES256Cipher" (32 bytes)
+    // Hardcoded IV:  "0123456789ABCDEF" (16 bytes)
+    const uint8_t key[32] = { 'C','a','m','o','u','f','o','x','S','e','c','r','e','t','K','e','y','F','o','r','A','E','S','2','5','6','C','i','p','h','e','r' };
+    const uint8_t iv[16]  = { '0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F' };
+
+    // Helper to decode hex
+    auto hexToBytes = [](const std::string& hex) -> std::vector<uint8_t> {
+      std::vector<uint8_t> bytes;
+      for (unsigned int i = 0; i < hex.length(); i += 2) {
+        std::string byteString = hex.substr(i, 2);
+        uint8_t byte = (uint8_t) strtol(byteString.c_str(), NULL, 16);
+        bytes.push_back(byte);
+      }
+      return bytes;
+    };
+
+    // Validate hex string before attempting decryption to prevent crashes
+    bool is_valid_hex = jsonString.length() > 0 && jsonString.length() % 2 == 0;
+    if (is_valid_hex) {
+        for (char c : jsonString) {
+            if (!std::isxdigit(static_cast<unsigned char>(c))) {
+                is_valid_hex = false;
+                break;
+            }
+        }
+    }
+
+    if (is_valid_hex) {
+        std::vector<uint8_t> ciphertext = hexToBytes(jsonString);
+        // Only decrypt if length is a multiple of AES block size (16)
+        if (!ciphertext.empty() && ciphertext.size() % 16 == 0) {
+            struct camou_AES_ctx ctx;
+            uint8_t local_iv[16];
+            memcpy(local_iv, iv, 16);
+            camou_AES_init_ctx_iv(&ctx, key, local_iv);
+
+            // Decrypt in place
+            camou_AES_CBC_decrypt_buffer(&ctx, ciphertext.data(), ciphertext.size());
+
+            // Safe PKCS7 padding removal
+            uint8_t pad_len = ciphertext.back();
+            if (pad_len > 0 && pad_len <= 16 && ciphertext.size() >= pad_len) {
+                // Verify all padding bytes are correct
+                bool valid_padding = true;
+                for (size_t i = ciphertext.size() - pad_len; i < ciphertext.size(); i++) {
+                    if (ciphertext[i] != pad_len) {
+                        valid_padding = false;
+                        break;
+                    }
+                }
+                if (valid_padding) {
+                    ciphertext.erase(ciphertext.end() - pad_len, ciphertext.end());
+                    jsonString = std::string(ciphertext.begin(), ciphertext.end());
+                }
+            }
+        }
+    }
+
     // Validate
+
     if (!nlohmann::json::accept(jsonString)) {
       printf_stderr("ERROR: Invalid JSON passed to CAMOU_CONFIG!\n");
       DebugEncryptedConfig("json accept failed after load");

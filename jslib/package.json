@@ -1,0 +1,21 @@
+{
+  "name": "camoufox-js",
+  "version": "0.1.0",
+  "description": "JavaScript wrapper for Camoufox, integrating Playwright and fingerprint generation.",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "test": "node src/test.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.8",
+    "fingerprint-generator": "^2.1.50",
+    "fingerprint-injector": "^2.1.53",
+    "geoip-lite": "^1.4.10",
+    "playwright": "^1.43.1",
+    "tar-fs": "^3.0.5",
+    "unzipper": "^0.11.6"
+  },
+  "author": "",
+  "license": "ISC"
+}

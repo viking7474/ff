@@ -1,0 +1,43 @@
+diff --git a/browser/components/urlbar/UrlbarInput.sys.mjs b/browser/components/urlbar/UrlbarInput.sys.mjs
+index 12345678..87654321 100644
+--- a/browser/components/urlbar/UrlbarInput.sys.mjs
++++ b/browser/components/urlbar/UrlbarInput.sys.mjs
+@@ -2119,6 +2119,29 @@
+     return false;
+   }
+
++  // Camoufox: Update profile label in Identity Box
++  _updateCamoufoxProfileLabel() {
++    let profileName = ChromeUtils.camouGetString("browser.profileName");
++    if (!profileName) return;
++
++    let identityBox = this.document.getElementById("identity-box");
++    if (!identityBox) return;
++
++    let label = this.document.getElementById("camoufox-profile-label");
++    if (!label) {
++      label = this.document.createXULElement("label");
++      label.id = "camoufox-profile-label";
++      label.style.fontWeight = "bold";
++      label.style.color = "var(--toolbar-field-color, inherit)";
++      label.style.marginInline = "6px";
++      label.style.display = "flex";
++      label.style.alignItems = "center";
++      label.style.opacity = "0.7";
++      identityBox.appendChild(label);
++    }
++    label.setAttribute("value", "[" + profileName + "]");
++  }
++
+   /**
+    * Starts a query based on the current input value.
+    *
+@@ -3905,6 +3928,8 @@
+       browser.userTypedValue = this.value;
+     }
+
++    this._updateCamoufoxProfileLabel();
++
+     // No point in setting this if we are loading in a new window.
+     if (
+       openUILinkWhere != "window" &&
